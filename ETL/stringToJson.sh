@@ -10,7 +10,7 @@ usage() {
 		-a | --all                   Process all data (overrides max items)
 		-b N | --batch-size-items N  Process data in batches of N (defautls to 25)
 		-m N | --max-items N         Limits processing to the first N entries (defaults to 100)
-		-t NAME | --table NAME       DynamoDB table name (defaults to "project")
+		-t NAME | --table NAME       DynamoDB table name (defaults to "projects")
 
 		Paths are specified as .x.y.z for { "x": { "y": { "z": data }}}. More
 		generally, they must be valid "jq" paths.
