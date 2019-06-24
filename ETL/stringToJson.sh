@@ -20,7 +20,6 @@ MAXITEMS=25
 		echo $j >&2
 	done
 } | while read -r line; do
-    echo "$line"
-    echo "$line" | jq -r -c '.projectBinaryData.B // "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA="' | base64 --decode | gzip -d | jq -r -c '{ projectBinaryData: { B: . } }'
-    echo "$line" | jq -r -c '.projectData.S // "{}" | fromjson | { projectData: { S: . } }'
-done | jq -r -c '. + input + input'
+    echo "$line" | jq -r -c '.projectBinaryData.B // "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA="' | base64 --decode | gzip -d | 
+	    jq --argjson line "$line" -r -c '$line + { projectBinaryData: { B: . } } + ($line.projectData.S // "{}" | fromjson | { projectData: { S: . } })'
+done
