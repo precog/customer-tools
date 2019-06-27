@@ -2,6 +2,18 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+if  [[ ! -x $(type -p jq) ]]; then
+	cat >&2 <<-MISSING_JQ
+		Please install "jq". On Amazon AMI Linux, install it with:
+
+		    sudo yum install -y jq
+
+		See https://stedolan.github.io/jq/download/ for information on other
+		platforms.
+	MISSING_JQ
+	exit 3
+fi
+
 usage() {
 	cat >&2 <<-USAGE
 		Usage: $0 [-?|-h|--help] [<binary_path> <string_path>]
