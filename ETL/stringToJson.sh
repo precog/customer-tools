@@ -14,6 +14,11 @@ if  [[ ! -x $(type -p jq) ]]; then
 	exit 3
 fi
 
+if [[ $(jq --version) == jq-1.[0-4] ]]; then
+	echo >&2 "Please update jq to version 1.5 or higher"
+	exit 4
+fi
+
 usage() {
 	cat >&2 <<-USAGE
 		Usage: $0 [-?|-h|--help] [<binary_path> <string_path>]
