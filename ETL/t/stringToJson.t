@@ -31,22 +31,15 @@ DATA="${TMP}/data"
 mkdir -p "${BIN}" "${DATA}"
 cat > "${BIN}/aws" <<-AWS
 	#!/usr/bin/env bash
-
-	NULLGLOB=\$(shopt -p nullglob) || :
-	shopt -s nullglob
-	declare -a FILES
-	FILES=("${DATA}"/*)
-	NEXT="\${FILES[0]}"
-	cat "\${NEXT}"
-	rm -f "\${NEXT}"
-	eval "\${NULLGLOB}"
+	exec ${BIN}/aws.sh "${DATA}" "${@}"
 AWS
-chmod +x "${BIN}/aws"
+cp "${TEST_DIR}/aws.sh" "${BIN}/"
+chmod +x "${BIN}/aws" "${BIN}/aws.sh"
 export PATH="${BIN}:${PATH}"
 
 # Load test framework
 unset IFS # osht depends on default IFS
-# shellcheck source=t/osht.sh disable=SC1094
+# shellcheck disable=SC1094 disable=SC1090
 source "$(dirname "$0")/osht.sh"
 
 # Tests run unlinted
@@ -59,7 +52,7 @@ clearData() {
 }
 
 addData() {
-	mapfile -t < <(cd "${DATA}"; ls)
+	mapfile -t < <(cd "${DATA}" && ls)
 	if [[ "${#MAPFILE[@]}" -eq 0 ]]; then
 		FILE="00.json"
 	else
@@ -71,7 +64,7 @@ addData() {
 }
 
 # Tests
-PLAN 7
+PLAN 11
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -89,10 +82,24 @@ EGREP '1.5'
 rm "${JQ}"
 
 # Empty input
-clearData; addData < /dev/null
+clearData
+addData < /dev/null
 RUNS "${SCRIPT}" -m 5
 NOGREP .
 EDIFF <<< "25"
+
+# Convert string literals to json
+clearData
+addData <<< '{ "Items": [{ "projectData": { "S": "{ \"a\": \"b\" }" }}]}'
+RUNS "${SCRIPT}"
+OGREP '"projectData":{"S":{"a":"b"}}'
+
+# Convert base64-encoded, gzipped string literals to json
+:
+clearData
+addData <<< '{ "Items": [{ "projectBinaryData": { "B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA=" }}]}'
+RUNS "${SCRIPT}"
+OGREP '"projectBinaryData":{"B":{"a":"b"}}'
 
 # vim: set ts=4 sw=4 tw=100 noet filetype=sh :
 
