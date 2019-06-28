@@ -64,12 +64,12 @@ addData() {
 }
 
 # Tests
-PLAN 11
+PLAN 26
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
 export -f jq
-NRUNS "${SCRIPT}"
+NRUNS "${SCRIPT}"  # abort if jq is not installed
 EGREP 'install "jq"'
 unset -f jq
 
@@ -77,14 +77,14 @@ unset -f jq
 JQ="${BIN}/jq"
 echo 'echo "jq-1.4"' > "${JQ}"
 chmod +x "${JQ}"
-NRUNS "${SCRIPT}"
+NRUNS "${SCRIPT}"  # abort if jq version is not compatible
 EGREP '1.5'
 rm "${JQ}"
 
 # Empty input
 clearData
 addData < /dev/null
-RUNS "${SCRIPT}" -m 5
+RUNS "${SCRIPT}" -m 5  # does not fail on empty input
 NOGREP .
 EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(25)\n25'
 
@@ -93,7 +93,7 @@ clearData
 for ignore in {1..90}; do
 	addData </dev/null
 done
-RUNS "${SCRIPT}" --table testTable --max-items 47 --batch-size 13
+RUNS "${SCRIPT}" --table testTable --max-items 47 --batch-size 13  # does not go beyond max items
 EGREP 'TABLE(testTable)'
 EGREP 'MAX_ITEMS(13)'
 EGREP 52 # 3 * 13 <= 47 < 4 * 13
@@ -102,28 +102,39 @@ NEGREP 65 # 47 < 4 * 13 < 5 * 13
 # Convert string literals to json
 clearData
 addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
-RUNS "${SCRIPT}"
+RUNS "${SCRIPT}"  # converts text data into json
 OGREP '"projectData":{"S":{"a":"b"}}'
 
 # Convert base64-encoded, gzipped string literals to json
-:
 clearData
 addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
-RUNS "${SCRIPT}"
+RUNS "${SCRIPT}"  # converts binary data into json
 OGREP '"projectBinaryData":{"B":{"a":"b"}}'
 
 # Test Max Items/Batch Size
 clearData
-for ignore in {1..15}; do
+for ignore in {1..20}; do
 	addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 	addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
 done
-RUNS "${SCRIPT}" --max-items 30 --batch-size 12
+RUNS "${SCRIPT}" --max-items 30 --batch-size 12  # reads all available data up to max items
 EGREP 'STARTING_TOKEN(12)'
 EGREP 'STARTING_TOKEN(24)'
 NEGREP 'STARTING_TOKEN(30)'
 NEGREP 'STARTING_TOKEN(36)'
 EGREP 36
+
+# Do not add string path unless present on input
+clearData
+addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
+RUNS "${SCRIPT}"  # does not add binary path if not present on input
+NOGREP 'projectData'
+
+# Do not add binary path unless present on input
+clearData
+addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
+RUNS "${SCRIPT}"  # does not add text path if not present on input
+NOGREP 'projectBinaryData'
 
 # vim: set ts=4 sw=4 tw=100 noet filetype=sh :
 

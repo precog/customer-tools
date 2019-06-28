@@ -69,9 +69,15 @@ BINARY_DEFAULT_QUERY="${BINARY_PATH}"' // "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA="'
 STRING_DEFAULT_QUERY="${STRING_PATH}"' // "{}"'
 BINARY_JQ_PATH="$(jq -n -c "path($BINARY_PATH)")"
 STRING_JQ_PATH="$(jq -n -c "path($STRING_PATH)")"
-# shellcheck disable=SC2140
-OUTPUT_QUERY=". as \$uncompressed | \$line | setpath(${BINARY_JQ_PATH}; \$uncompressed) | "\
-"setpath(${STRING_JQ_PATH}; ${STRING_DEFAULT_QUERY} | fromjson)"
+# shellcheck disable=SC2034  # False positive on -d 'EOL'
+read -r -d 'EOL' OUTPUT_QUERY <<-QUERY
+	. as \$uncompressed
+	| (\$line | ${STRING_DEFAULT_QUERY} | fromjson) as \$literal
+	| \$line
+	| if getpath(${BINARY_JQ_PATH}) then setpath(${BINARY_JQ_PATH}; \$uncompressed) else . end
+	| if getpath(${STRING_JQ_PATH}) then setpath(${STRING_JQ_PATH}; \$literal) else . end
+	EOL
+QUERY
 
 : "${ALL:=}"
 : "${MAX_ITEMS:=100}"
