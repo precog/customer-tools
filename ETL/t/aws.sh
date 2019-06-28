@@ -2,8 +2,6 @@
 # aws dynamodb scan --output json --table-name "$TABLE" --max-items "$BATCH_SIZE"
 # --starting-token "$NEXTTOKEN"
 
-#set -x
-
 DATA="$1"
 shift
 
@@ -17,21 +15,26 @@ case "$1" in
 	--max-items)
 		shift
 		echo >&2 "MAX_ITEMS($1)"
+		LENGTH="$1"
 		shift
 		;;
 	--starting-token)
 		shift
 		echo >&2 "STARTING_TOKEN($1)"
-		NEXT="$1"
+		INDEX="$1"
 		shift
 		;;
 	*) shift ;;
 esac
 done
 
-mapfile -t FILES < <(cd "${DATA}" && ls)
-: "${NEXT:="${FILES[0]}"}"
-cat "${DATA}/${NEXT}"
-#rm -f "${NEXT}"
+cd "${DATA}" || exit 1
+mapfile -t FILES < <(ls)
+: "${INDEX:=0}"
+: "${LENGTH:=5}"
+NEXT=$((INDEX+LENGTH))
+cat "${FILES[@]:${INDEX}:${LENGTH}}" |
+	jq --slurp "{Items:.} | if $NEXT < ${#FILES[@]} then .+{NextToken:$NEXT} else . end"
 
-#set +x
+# vim: set ts=4 sw=4 tw=100 noet :
+
