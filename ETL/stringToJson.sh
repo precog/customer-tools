@@ -47,7 +47,7 @@ usage() {
 	exit 1
 }
 
-while [[ $# -gt 0 && "$1" == -* ]]; do
+while [[ $# -gt 0 && $1 == -* ]]; do
 	case "$1" in
 	-\? | -h | --help) usage ;;
 	-a | --all) ALL=1 ;;
@@ -104,7 +104,7 @@ j=0
 	jq -r -c '.Items[]' <<<"$DATA"
 	NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA") && j="$BATCH_SIZE"
 	echo $j >&2
-	while [[ "${NEXTTOKEN}" != 'null' && (-n "${ALL}" || $j -lt "$MAX_ITEMS") ]]; do
+	while [[ ${NEXTTOKEN} != 'null' && (-n ${ALL} || $j -lt $MAX_ITEMS) ]]; do
 		DATA=$(aws dynamodb scan --output json --table-name "$TABLE" --starting-token "$NEXTTOKEN" --max-items "$BATCH_SIZE")
 		jq -r -c '.Items[]' <<<"$DATA"
 		NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
