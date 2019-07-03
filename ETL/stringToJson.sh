@@ -24,10 +24,10 @@ usage() {
 		Usage: $0 [-?|-h|--help] [<binary_path> <string_path>]
 		
 		-? | -h | --help             Prints this message
-		-a | --all                   Process all data (overrides max items)
-		-b N | --batch-size-items N  Process data in batches of N (defautls to 25)
-		-m N | --max-items N         Limits processing to the first N entries (defaults to 100)
-		-t NAME | --table NAME       DynamoDB table name (defaults to "projects")
+		-a | --all                   Process all data (overrides total)
+		-m N | --max-items N         Process data in batches of N (defaults to 25)
+		-t N | --total N             Limits processing to the first N entries (defaults to 100)
+		-T NAME | --table NAME       DynamoDB table name (defaults to "projects")
 		
 		Paths are specified as .x.y.z for { "x": { "y": { "z": data }}}. More
 		generally, they must be valid "jq" paths.
@@ -51,15 +51,15 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 	case "$1" in
 	-\? | -h | --help) usage ;;
 	-a | --all) ALL=1 ;;
-	-b | --batch-size)
-		shift
-		BATCH_SIZE="${1}"
-		;;
 	-m | --max-items)
 		shift
 		MAX_ITEMS="${1}"
 		;;
-	-t | --table)
+	-t | --total)
+		shift
+		TOTAL="${1}"
+		;;
+	-T | --table)
 		shift
 		TABLE="${1}"
 		;;
@@ -93,22 +93,22 @@ read -r -d 'EOL' OUTPUT_QUERY <<-QUERY
 QUERY
 
 : "${ALL:=}"
-: "${MAX_ITEMS:=100}"
+: "${TOTAL:=100}"
 : "${TABLE:=projects}"
-: "${BATCH_SIZE:=25}"
+: "${MAX_ITEMS:=25}"
 
 NEXTTOKEN='null'
 j=0
 {
-	DATA=$(aws dynamodb scan --output json --table-name "$TABLE" --max-items "$BATCH_SIZE")
+	DATA=$(aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS")
 	jq -r -c '.Items[]' <<<"$DATA"
-	NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA") && j="$BATCH_SIZE"
+	NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA") && j="$MAX_ITEMS"
 	echo $j >&2
-	while [[ ${NEXTTOKEN} != 'null' && (-n ${ALL} || $j -lt $MAX_ITEMS) ]]; do
-		DATA=$(aws dynamodb scan --output json --table-name "$TABLE" --starting-token "$NEXTTOKEN" --max-items "$BATCH_SIZE")
+	while [[ ${NEXTTOKEN} != 'null' && (-n ${ALL} || $j -lt $TOTAL) ]]; do
+		DATA=$(aws dynamodb scan --output json --table-name "$TABLE" --starting-token "$NEXTTOKEN" --max-items "$MAX_ITEMS")
 		jq -r -c '.Items[]' <<<"$DATA"
 		NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
-		j=$((j + BATCH_SIZE))
+		j=$((j + MAX_ITEMS))
 		echo $j >&2
 	done
 } | while read -r line; do

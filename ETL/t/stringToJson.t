@@ -84,7 +84,7 @@ rm "${JQ}"
 # Empty input
 clearData
 addData < /dev/null
-RUNS "${SCRIPT}" -m 5  # does not fail on empty input
+RUNS "${SCRIPT}" -t 5  # does not fail on empty input
 NOGREP .
 EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(25)\n25'
 
@@ -93,7 +93,7 @@ clearData
 for ignore in {1..90}; do
 	addData </dev/null
 done
-RUNS "${SCRIPT}" --table testTable --max-items 47 --batch-size 13  # does not go beyond max items
+RUNS "${SCRIPT}" --table testTable --total 47 --max-items 13  # does not go beyond total
 EGREP 'TABLE(testTable)'
 EGREP 'MAX_ITEMS(13)'
 EGREP 52 # 3 * 13 <= 47 < 4 * 13
@@ -121,7 +121,7 @@ for ignore in {1..20}; do
 	addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 	addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
 done
-RUNS "${SCRIPT}" --max-items 30 --batch-size 12  # reads all available data up to max items
+RUNS "${SCRIPT}" --total 30 --max-items 12  # reads all available data up to max items
 EGREP 'STARTING_TOKEN(12)'
 EGREP 'STARTING_TOKEN(24)'
 NEGREP 'STARTING_TOKEN(30)'
