@@ -26,6 +26,7 @@ usage() {
 		-? | -h | --help             Prints this message
 		-a | --all                   Process all data (overrides total)
 		-m N | --max-items N         Process data in batches of N (defaults to 25)
+		-q | --quiet                 Do not print progress information
 		-t N | --total N             Limits processing to the first N entries (defaults to 100)
 		-T NAME | --table NAME       DynamoDB table name (defaults to "projects")
 		
@@ -63,6 +64,9 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 		shift
 		TABLE="${1}"
 		;;
+	-q | --quiet)
+		QUIET=1
+		;;
 	*)
 		echo >&2 "Invalid parameter '$1'"$'\n'
 		usage
@@ -93,9 +97,10 @@ read -r -d 'EOL' OUTPUT_QUERY <<-QUERY
 QUERY
 
 : "${ALL:=}"
-: "${TOTAL:=100}"
-: "${TABLE:=projects}"
 : "${MAX_ITEMS:=25}"
+: "${QUIET:=}"
+: "${TABLE:=projects}"
+: "${TOTAL:=100}"
 
 NEXTTOKEN='null'
 COUNT=0
@@ -109,7 +114,7 @@ COUNT=0
 	ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
 	TOTAL=$((TOTAL - ITEMS_READ))
 	COUNT=$ITEMS_READ
-	echo >&2 $COUNT
+	[[ -n $QUIET ]] || echo >&2 $COUNT
 	while [[ ${NEXTTOKEN} != 'null' && (-n ${ALL} || ${TOTAL} -gt 0) ]]; do
 		if [[ ${TOTAL} -lt ${MAX_ITEMS} ]]; then
 			MAX_ITEMS=${TOTAL}
@@ -120,7 +125,7 @@ COUNT=0
 		ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
 		TOTAL=$((TOTAL - ITEMS_READ))
 		COUNT=$((COUNT + ITEMS_READ))
-		echo >&2 $COUNT
+		[[ -n $QUIET ]] || echo >&2 $COUNT
 	done
 } | while read -r line; do
 	echo "$line" | jq -r -c "${BINARY_DEFAULT_QUERY}" | base64 --decode | gzip -d |

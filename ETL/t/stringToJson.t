@@ -69,7 +69,7 @@ addData() {
 }
 
 # Tests
-PLAN 32
+PLAN 36
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -127,6 +127,12 @@ for ignore in {1..20}; do
 	addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 	addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
 done
+
+# Quiet running
+RUNS "${SCRIPT}" -q -t 5
+EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(5)'
+RUNS "${SCRIPT}" --quiet -t 5
+EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(5)'
 
 # Basic parameters
 RUNS "${SCRIPT}" --table testTable --total 19 --max-items 7  # does not go beyond total
