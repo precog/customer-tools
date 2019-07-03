@@ -35,6 +35,11 @@ cat > "${BIN}/aws" <<-AWS
 AWS
 cp "${TEST_DIR}/aws.sh" "${BIN}/"
 chmod +x "${BIN}/aws" "${BIN}/aws.sh"
+cat > "${BIN}/countLines.sh" <<-COUNTLINES
+	#!/usr/bin/env bash
+	"${SCRIPT}" "\$@" | tee >(cat >&2) | wc -l | tr -d ' '
+COUNTLINES
+chmod +x "${BIN}/countLines.sh"
 export PATH="${BIN}:${PATH}"
 
 # Load test framework
@@ -64,7 +69,7 @@ addData() {
 }
 
 # Tests
-PLAN 28
+PLAN 32
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -86,18 +91,7 @@ clearData
 addData < /dev/null
 RUNS "${SCRIPT}" -t 5  # does not fail on empty input
 NOGREP .
-EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(25)\n25'
-
-# Basic parameters
-clearData
-for ignore in {1..90}; do
-	addData </dev/null
-done
-RUNS "${SCRIPT}" --table testTable --total 47 --max-items 13  # does not go beyond total
-EGREP 'TABLE(testTable)'
-EGREP 'MAX_ITEMS(13)'
-EGREP 52 # 3 * 13 <= 47 < 4 * 13
-NEGREP 65 # 47 < 4 * 13 < 5 * 13
+EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(5)\n0'
 
 # Invalid parameters
 NRUNS "${SCRIPT}" --mistaken-parameter  # Invalid parameter
@@ -115,19 +109,6 @@ addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasg
 RUNS "${SCRIPT}"  # converts binary data into json
 OGREP '"projectBinaryData":{"B":{"a":"b"}}'
 
-# Test Max Items/Batch Size
-clearData
-for ignore in {1..20}; do
-	addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
-	addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
-done
-RUNS "${SCRIPT}" --total 30 --max-items 12  # reads all available data up to max items
-EGREP 'STARTING_TOKEN(12)'
-EGREP 'STARTING_TOKEN(24)'
-NEGREP 'STARTING_TOKEN(30)'
-NEGREP 'STARTING_TOKEN(36)'
-EGREP 36
-
 # Do not add string path unless present on input
 clearData
 addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
@@ -139,6 +120,36 @@ clearData
 addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 RUNS "${SCRIPT}"  # does not add text path if not present on input
 NOGREP 'projectBinaryData'
+
+# Setup for tests counting data
+clearData
+for ignore in {1..20}; do
+	addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
+	addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
+done
+
+# Basic parameters
+RUNS "${SCRIPT}" --table testTable --total 19 --max-items 7  # does not go beyond total
+EGREP 'TABLE(testTable)'
+EGREP 'MAX_ITEMS(7)'
+EGREP 19
+NEGREP 21
+
+# Test Total/Max Items
+RUNS "${SCRIPT}" --total 30 --max-items 12  # reads all available data up to total
+EGREP 'STARTING_TOKEN(12)'
+EGREP 'STARTING_TOKEN(24)'
+NEGREP 'STARTING_TOKEN(30)'
+NEGREP 'STARTING_TOKEN(36)'
+EGREP 30
+
+# Test Total/Max Items for Total < Max Items
+RUNS countLines.sh -t 5  # 5 total out of 40 with 25 increments
+ODIFF <<< $'5'
+
+# Test Total/Max Items for Total > Max Items
+RUNS countLines.sh -t 10 -m 7  # 10 total out of 40 with 7 increments
+ODIFF <<< $'10'
 
 # vim: set ts=4 sw=4 tw=100 noet filetype=sh :
 

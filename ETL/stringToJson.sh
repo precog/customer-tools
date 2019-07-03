@@ -98,18 +98,29 @@ QUERY
 : "${MAX_ITEMS:=25}"
 
 NEXTTOKEN='null'
-j=0
+COUNT=0
 {
+	if [[ ${TOTAL} -lt ${MAX_ITEMS} ]]; then
+		MAX_ITEMS=${TOTAL}
+	fi
 	DATA=$(aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS")
 	jq -r -c '.Items[]' <<<"$DATA"
-	NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA") && j="$MAX_ITEMS"
-	echo $j >&2
-	while [[ ${NEXTTOKEN} != 'null' && (-n ${ALL} || $j -lt $TOTAL) ]]; do
+	NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
+	ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
+	TOTAL=$((TOTAL - ITEMS_READ))
+	COUNT=$ITEMS_READ
+	echo >&2 $COUNT
+	while [[ ${NEXTTOKEN} != 'null' && (-n ${ALL} || ${TOTAL} -gt 0) ]]; do
+		if [[ ${TOTAL} -lt ${MAX_ITEMS} ]]; then
+			MAX_ITEMS=${TOTAL}
+		fi
 		DATA=$(aws dynamodb scan --output json --table-name "$TABLE" --starting-token "$NEXTTOKEN" --max-items "$MAX_ITEMS")
 		jq -r -c '.Items[]' <<<"$DATA"
 		NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
-		j=$((j + MAX_ITEMS))
-		echo $j >&2
+		ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
+		TOTAL=$((TOTAL - ITEMS_READ))
+		COUNT=$((COUNT + ITEMS_READ))
+		echo >&2 $COUNT
 	done
 } | while read -r line; do
 	echo "$line" | jq -r -c "${BINARY_DEFAULT_QUERY}" | base64 --decode | gzip -d |
