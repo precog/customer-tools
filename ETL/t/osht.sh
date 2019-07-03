@@ -329,9 +329,35 @@ function _osht_debugmsg {
             echo "EOM";;
         DIFF|ODIFF|EDIFF)
             cat $_OSHT_DIFFOUT;;
-        GREP|EGREP|OGREP)
+        GREP)
+            echo "STDIO <<EOM"
+            cat $OSHT_STDIO
+            echo "EOM"
             _osht_qq grep -q "${_OSHT_ARGS[@]}"; echo;;
-        NGREP|NEGREP|NOGREP)
+        EGREP)
+            echo "STDERR <<EOM"
+            cat $OSHT_STDERR
+            echo "EOM"
+            _osht_qq grep -q "${_OSHT_ARGS[@]}"; echo;;
+        OGREP)
+            echo "STDOUT <<EOM"
+            cat $OSHT_STDOUT
+            echo "EOM"
+            _osht_qq grep -q "${_OSHT_ARGS[@]}"; echo;;
+        NGREP)
+            echo "STDIO <<EOM"
+            cat $OSHT_STDIO
+            echo "EOM"
+            _osht_qq \! grep -q "${_OSHT_ARGS[@]}"; echo;;
+        NEGREP)
+            echo "STDERR <<EOM"
+            cat $OSHT_STDERR
+            echo "EOM"
+            _osht_qq \! grep -q "${_OSHT_ARGS[@]}"; echo;;
+        NOGREP)
+            echo "STDOUT <<EOM"
+            cat $OSHT_STDOUT
+            echo "EOM"
             _osht_qq \! grep -q "${_OSHT_ARGS[@]}"; echo;;
    esac
 }
