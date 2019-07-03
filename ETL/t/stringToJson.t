@@ -64,7 +64,7 @@ addData() {
 }
 
 # Tests
-PLAN 26
+PLAN 28
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -98,6 +98,10 @@ EGREP 'TABLE(testTable)'
 EGREP 'MAX_ITEMS(13)'
 EGREP 52 # 3 * 13 <= 47 < 4 * 13
 NEGREP 65 # 47 < 4 * 13 < 5 * 13
+
+# Invalid parameters
+NRUNS "${SCRIPT}" --mistaken-parameter  # Invalid parameter
+EGREP -i 'invalid parameter.*--mistaken-parameter'
 
 # Convert string literals to json
 clearData

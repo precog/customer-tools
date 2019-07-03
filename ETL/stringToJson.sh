@@ -54,6 +54,7 @@ while [[ $# -gt 0 && "$1" == -* ]]; do
 		-b | --batch-size) shift; BATCH_SIZE="${1}" ;;
 		-m | --max-items) shift; MAX_ITEMS="${1}" ;;
 		-t | --table) shift; TABLE="${1}" ;;
+		*) echo >&2 "Invalid parameter '$1'"$'\n'; usage ;;
 	esac
 	shift
 done
