@@ -114,7 +114,7 @@ COUNT=0
 	ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
 	TOTAL=$((TOTAL - ITEMS_READ))
 	COUNT=$ITEMS_READ
-	[[ -n $QUIET ]] || echo >&2 $COUNT
+	[[ -n $QUIET ]] || echo >&2 "$COUNT"
 	while [[ ${NEXTTOKEN} != 'null' && (-n ${ALL} || ${TOTAL} -gt 0) ]]; do
 		if [[ ${TOTAL} -lt ${MAX_ITEMS} ]]; then
 			MAX_ITEMS=${TOTAL}
