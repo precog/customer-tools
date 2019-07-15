@@ -86,7 +86,8 @@ BINARY_DEFAULT_QUERY="${BINARY_PATH}"' // "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA="'
 STRING_DEFAULT_QUERY="${STRING_PATH}"' // "{}"'
 BINARY_JQ_PATH="$(jq -n -c "path($BINARY_PATH)")"
 STRING_JQ_PATH="$(jq -n -c "path($STRING_PATH)")"
-# shellcheck disable=SC2034  # False positive on -d 'EOL'
+# False positive on -d 'EOL':
+# shellcheck disable=SC2034
 read -r -d 'EOL' OUTPUT_QUERY <<-QUERY
 	. as \$uncompressed
 	| (\$line | ${STRING_DEFAULT_QUERY} | fromjson) as \$literal
