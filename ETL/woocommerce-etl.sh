@@ -5,9 +5,9 @@ IFS=$'\n\t'
 if [[ ! -x $(type -p jq) ]]; then
 	cat >&2 <<-MISSING_JQ
 		Please install "jq". On Amazon AMI Linux, install it with:
-		
+
 		    sudo yum install -y jq
-		
+
 		See https://stedolan.github.io/jq/download/ for information on other
 		platforms.
 	MISSING_JQ
@@ -22,7 +22,7 @@ fi
 usage() {
 	cat >&2 <<-USAGE
 		Usage: $0 [-?|-h|--help] <wordpress_base_url> <basic_auth_username> <basic_auth_password>
-		
+
 		-? | -h | --help                      Prints this message
 		-a | --all                            Process all orders (overrides total)
 		-p N | --per-page N                   Process orders in batches of N (defaults to 100)
@@ -31,7 +31,7 @@ usage() {
 		-E NAME | --endpoint NAME             WooCommerce endpoint name (defaults to "orders")
 		-A START_DATE | --after START_DATE    Only include orders after this date (E.g. "2017-03-22")
 		-B END_DATE | --before END_DATE       Only include orders before this date (E.g. "2018-04-14")
-		
+
 	USAGE
 	exit 1
 }
@@ -71,9 +71,9 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 	shift
 done
 
-WORDPRESS_BASE_URL="${1:-https://example.com}"
-BASIC_AUTH_USER="${2:-example_username}"
-BASIC_AUTH_PASSWORD="${2:-example_password}"
+WORDPRESS_BASE_URL="${1:?Please provide url, auth user and auth password}"
+BASIC_AUTH_USER="${2:?Please provide auth user and password}"
+BASIC_AUTH_PASSWORD="${3:?Please provide auth password}"
 
 : "${ALL:=}"
 : "${PER_PAGE:=100}"
@@ -83,33 +83,26 @@ BASIC_AUTH_PASSWORD="${2:-example_password}"
 : "${AFTER:=}"
 : "${BEFORE:=}"
 
-NEXTTOKEN='null'
 COUNT=0
 PAGE=1
 {
 	if [[ ${TOTAL} -lt ${PER_PAGE} ]]; then
 		PER_PAGE=${TOTAL}
 	fi
-	BEFORE_PARAM=""
-	AFTER_PARAM=""
-	if [[ ! -z $BEFORE ]]; then
-		BEFORE_PARAM="before=$BEFORE&"
-	fi
-	if [[ ! -z $AFTER ]]; then
-		AFTER_PARAM="after=$AFTER&"
-	fi
+	BEFORE_PARAM="${BEFORE:+before=${BEFORE}&}"
+	AFTER_PARAM="${AFTER:+after=${AFTER}&}"
 	URL="$WORDPRESS_BASE_URL/wp-json/wc/v2/${ENDPOINT}?${BEFORE_PARAM}${AFTER_PARAM}"
 	ITEMS_READ=$PER_PAGE
-	while [[ $ITEMS_READ -gt $(($PER_PAGE - 1)) && (-n ${ALL} || ${TOTAL} -gt 0) ]]; do
+	while [[ $ITEMS_READ -gt $((PER_PAGE - 1)) && (-n ${ALL} || ${TOTAL} -gt 0) ]]; do
 		if [[ ${TOTAL} -lt ${PER_PAGE} ]]; then
 			PER_PAGE=${TOTAL}
 		fi
 		DATA=$(curl --silent --user "$BASIC_AUTH_USER:$BASIC_AUTH_PASSWORD" "${URL}per-page=${PER_PAGE}&page=${PAGE}")
-		cat <<< "$DATA" | jq -c '.[]' 
+		jq -c '.[]' <<< "$DATA"
 		ITEMS_READ=$(jq -r -c 'length' <<< "$DATA")
 		TOTAL=$((TOTAL - ITEMS_READ))
 		COUNT=$((COUNT + ITEMS_READ))
-		PAGE=$(($PAGE + 1))
+		PAGE=$((PAGE + 1))
 		[[ -n $QUIET ]] || echo >&2 $COUNT
 	done
 }
