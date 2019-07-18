@@ -63,7 +63,7 @@ addData() {
 	else
 		LAST="${MAPFILE[-1]%.json}"
 		[[ "${LAST}" == +([0-9]) ]] || { echo >&2 "Invalid data file: '${LAST}'"; return 1; }
-		FILE=$(printf "%02d.json" $(("10#$LAST" + 1)))
+		FILE=$(printf "%02d.json" $((10#$LAST + 1)))
 	fi
 	cat > "${DATA}/${FILE}"
 }
@@ -123,6 +123,7 @@ NOGREP 'projectBinaryData'
 
 # Setup for tests counting data
 clearData
+# shellcheck disable=SC2034
 for ignore in {1..20}; do
 	addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 	addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
