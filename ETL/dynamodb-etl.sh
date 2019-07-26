@@ -117,7 +117,7 @@ COUNT=0
 	COUNT=$ITEMS_READ
 	[[ -n $QUIET ]] || echo >&2 "$COUNT"
 	while [[ ${NEXTTOKEN} != 'null' && (-n ${ALL} || ${TOTAL} -gt 0) ]]; do
-		if [[ ${TOTAL} -lt ${MAX_ITEMS} ]]; then
+		if [[ -z ${ALL} && ${TOTAL} -lt ${MAX_ITEMS} ]]; then
 			MAX_ITEMS=${TOTAL}
 		fi
 		DATA=$(aws dynamodb scan --output json --table-name "$TABLE" --starting-token "$NEXTTOKEN" --max-items "$MAX_ITEMS")

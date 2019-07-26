@@ -69,7 +69,7 @@ addData() {
 }
 
 # Tests
-PLAN 36
+PLAN 38
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -157,6 +157,10 @@ ODIFF <<< $'5'
 # Test Total/Max Items for Total > Max Items
 RUNS countLines.sh -t 10 -m 7  # 10 total out of 40 with 7 increments
 ODIFF <<< $'10'
+
+# Test All ignores Total
+RUNS countLines.sh --all --total 10  # reads all data despite total
+ODIFF <<< $'40'
 
 # vim: set ts=4 sw=4 tw=100 noet filetype=sh :
 
