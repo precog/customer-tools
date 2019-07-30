@@ -69,7 +69,7 @@ addData() {
 }
 
 # Tests
-PLAN 36
+PLAN 38
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }

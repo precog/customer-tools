@@ -1,4 +1,4 @@
 language: shell
 script:
   - bash -c 'find . \( -name "*.sh" -or -name "*.ksh" -or -name "*.bash" \) -not -name osht.sh -prune -print0 | xargs -0 shellcheck'
-  - bash -c 'shopt -s globstar; **/*.t'
+  - find . -path '*/t/*.t' -perm +u+x -print0 | xargs -0 -t -I % bash %
