@@ -121,6 +121,12 @@ addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 RUNS "${SCRIPT}"  # does not add text path if not present on input
 NOGREP 'projectBinaryData'
 
+# Handles data over 400 KB in length
+clearData
+addData <<< "{\"key\": [$(seq -s , 1 100000)0]}"
+RUNS "${SCRIPT}"  # handles records bigger than 400 KB
+EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(25)\n1'
+
 # Setup for tests counting data
 clearData
 # shellcheck disable=SC2034

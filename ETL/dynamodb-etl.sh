@@ -129,8 +129,8 @@ COUNT=0
 		[[ -n $QUIET ]] || echo >&2 $COUNT
 	done
 } | while read -r line; do
-	echo "$line" | jq -r -c "${BINARY_DEFAULT_QUERY}" | base64 --decode | gzip -d |
-		jq --argjson line "$line" -r -c "${OUTPUT_QUERY}"
+	jq -r -c "${BINARY_DEFAULT_QUERY}" <<< "$line" | base64 --decode | gzip -d |
+		jq -r -c ". as \$line | input | ${OUTPUT_QUERY}" <(cat <<<"$line") <(cat)
 done
 
 # vim: set ts=4 sw=4 tw=100 noet :
