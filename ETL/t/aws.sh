@@ -5,6 +5,9 @@
 DATA="$1"
 shift
 
+declare DESCRIBE_TABLE
+declare SCAN
+
 while [[ $# -gt 0 ]]; do
 case "$1" in
 	--table-name)
@@ -24,17 +27,34 @@ case "$1" in
 		INDEX="$1"
 		shift
 		;;
+	scan)
+		shift
+		echo >&2 "SCAN"
+		SCAN=1
+		;;
+	describe-table)
+		shift
+		echo >&2 "DESCRIBE_TABLE"
+		DESCRIBE_TABLE=1
+		;;
 	*) shift ;;
 esac
 done
 
 cd "${DATA}" || exit 1
 mapfile -t FILES < <(ls)
-: "${INDEX:=0}"
-: "${LENGTH:=5}"
-NEXT=$((INDEX+LENGTH))
-cat "${FILES[@]:${INDEX}:${LENGTH}}" |
-	jq --slurp "{Items:.} | if $NEXT < ${#FILES[@]} then .+{NextToken:$NEXT} else . end"
+
+if [[ -n $DESCRIBE_TABLE ]]; then
+	jq -n --argjson count "${#FILES[@]}" '{ Table: { ItemCount: $count } }'
+	exit 0
+elif [[ -n $SCAN ]]; then
+	: "${INDEX:=0}"
+	: "${LENGTH:=5}"
+	NEXT=$((INDEX+LENGTH))
+	cat "${FILES[@]:${INDEX}:${LENGTH}}" |
+		jq --slurp "{Items:.} | if $NEXT < ${#FILES[@]} then .+{NextToken:$NEXT} else . end"
+fi
+
 
 # vim: set ts=4 sw=4 tw=100 noet :
 

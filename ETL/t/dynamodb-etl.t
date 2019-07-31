@@ -69,7 +69,7 @@ addData() {
 }
 
 # Tests
-PLAN 38
+PLAN 40
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -91,7 +91,7 @@ clearData
 addData < /dev/null
 RUNS "${SCRIPT}" -t 5  # does not fail on empty input
 NOGREP .
-EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(5)\n0'
+EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(5)\n0'
 
 # Invalid parameters
 NRUNS "${SCRIPT}" --mistaken-parameter  # Invalid parameter
@@ -125,7 +125,7 @@ NOGREP 'projectBinaryData'
 clearData
 addData <<< "{\"key\": [$(seq -s , 1 100000)0]}"
 RUNS "${SCRIPT}"  # handles records bigger than 400 KB
-EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(25)\n1'
+EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(25)\n1'
 
 # Setup for tests counting data
 clearData
@@ -137,9 +137,9 @@ done
 
 # Quiet running
 RUNS "${SCRIPT}" -q -t 5
-EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(5)'
+EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(5)'
 RUNS "${SCRIPT}" --quiet -t 5
-EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(5)'
+EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(5)'
 
 # Basic parameters
 RUNS "${SCRIPT}" --table testTable --total 19 --max-items 7  # does not go beyond total

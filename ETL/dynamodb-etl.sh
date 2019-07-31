@@ -103,28 +103,35 @@ QUERY
 : "${TABLE:=projects}"
 : "${TOTAL:=100}"
 
-NEXTTOKEN='null'
-COUNT=0
-{
-	if [[ ${TOTAL} -lt ${MAX_ITEMS} ]]; then
-		MAX_ITEMS=${TOTAL}
+curbMaxItems() {
+	REMAINING=$((TOTAL - COUNT))
+	if [[ $REMAINING -lt $MAX_ITEMS ]]; then
+		MAX_ITEMS=$REMAINING
 	fi
+}
+
+COUNT=0
+NEXTTOKEN='null'
+{
+	if [[ -n $ALL ]]; then
+		TOTAL="$(aws dynamodb describe-table --table-name "${TABLE}" | jq .Table.ItemCount)"
+	fi
+
+	curbMaxItems
+
 	DATA=$(aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS")
 	jq -r -c '.Items[]' <<<"$DATA"
 	NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
 	ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
-	TOTAL=$((TOTAL - ITEMS_READ))
 	COUNT=$ITEMS_READ
 	[[ -n $QUIET ]] || echo >&2 "$COUNT"
-	while [[ ${NEXTTOKEN} != 'null' && (-n ${ALL} || ${TOTAL} -gt 0) ]]; do
-		if [[ -z ${ALL} && ${TOTAL} -lt ${MAX_ITEMS} ]]; then
-			MAX_ITEMS=${TOTAL}
-		fi
+
+	while [[ ${NEXTTOKEN} != 'null' && (${TOTAL} -gt ${COUNT}) ]]; do
+		curbMaxItems
 		DATA=$(aws dynamodb scan --output json --table-name "$TABLE" --starting-token "$NEXTTOKEN" --max-items "$MAX_ITEMS")
 		jq -r -c '.Items[]' <<<"$DATA"
 		NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
 		ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
-		TOTAL=$((TOTAL - ITEMS_READ))
 		COUNT=$((COUNT + ITEMS_READ))
 		[[ -n $QUIET ]] || echo >&2 $COUNT
 	done
