@@ -67,6 +67,9 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 	-q | --quiet)
 		QUIET=1
 		;;
+	--no-timer)
+		NO_TIMER=1
+		;;
 	*)
 		echo >&2 "Invalid parameter '$1'"$'\n'
 		usage
@@ -99,6 +102,7 @@ QUERY
 
 : "${ALL:=}"
 : "${MAX_ITEMS:=25}"
+: "${NO_TIMER:=}"
 : "${QUIET:=}"
 : "${TABLE:=projects}"
 : "${TOTAL:=100}"
@@ -110,11 +114,46 @@ curbMaxItems() {
 	fi
 }
 
+ss() {
+	s="${2-s}"
+	[[ $1 -ne 1 ]] && echo -n "$s"
+}
+
+showTimer() {
+	duration="$1"
+	seconds=$((duration % 60))
+	minutes=$((duration / 60 % 60))
+	hours=$((duration / 3600))
+	echo -n "$hours hour$(ss $hours) $minutes minute$(ss $minutes) $seconds second$(ss $seconds)"
+}
+
+showEllapsed() {
+	if [[ -z $NO_TIMER && -z $QUIET && -n $ALL ]]; then
+		duration=$SECONDS
+		estimate=$((TOTAL * duration / COUNT))
+		echo >&2 -n "Time ellapsed: $(showTimer $duration)"
+		echo >&2 " estimated: $(showTimer $estimate)"
+	fi
+}
+
+showCount() {
+	if [[ -z $QUIET ]]; then
+		if [[ -n $ALL ]]; then
+			perc=$((COUNT * 100 / TOTAL))
+			echo >&2 "$COUNT (${perc}%)"
+		else
+			echo >&2 "$COUNT"
+		fi
+	fi
+}
+
 COUNT=0
 NEXTTOKEN='null'
+SECONDS=0
 {
 	if [[ -n $ALL ]]; then
 		TOTAL="$(aws dynamodb describe-table --table-name "${TABLE}" | jq .Table.ItemCount)"
+		[[ -n $QUIET ]] || echo >&2 "Total ${TOTAL}"
 	fi
 
 	curbMaxItems
@@ -124,7 +163,7 @@ NEXTTOKEN='null'
 	NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
 	ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
 	COUNT=$ITEMS_READ
-	[[ -n $QUIET ]] || echo >&2 "$COUNT"
+	showCount
 
 	while [[ ${NEXTTOKEN} != 'null' && (${TOTAL} -gt ${COUNT}) ]]; do
 		curbMaxItems
@@ -133,7 +172,8 @@ NEXTTOKEN='null'
 		NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
 		ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
 		COUNT=$((COUNT + ITEMS_READ))
-		[[ -n $QUIET ]] || echo >&2 $COUNT
+		showCount
+		showEllapsed
 	done
 } | while read -r line; do
 	jq -r -c "${BINARY_DEFAULT_QUERY}" <<< "$line" | base64 --decode | gzip -d |
