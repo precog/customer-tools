@@ -7,6 +7,6 @@ find . \( -name "*.sh" -or -name "*.ksh" -or -name "*.bash" \) -not -name osht.s
 	xargs -0 -I % bash -c 'echo "Linting script %"; shellcheck %'
 
 # Run shell test
-find . -path '*/t/*.t' -perm +u+x -print0 |
+find . -path '*/t/*.t' -perm -u+x -print0 |
 	xargs -0 -I % bash -c 'echo "Running Test %"; %'
 
