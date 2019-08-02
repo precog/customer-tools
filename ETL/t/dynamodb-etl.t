@@ -69,7 +69,7 @@ addData() {
 }
 
 # Tests
-PLAN 38
+PLAN 44
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -91,7 +91,7 @@ clearData
 addData < /dev/null
 RUNS "${SCRIPT}" -t 5  # does not fail on empty input
 NOGREP .
-EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(5)\n0'
+EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(5)\n0'
 
 # Invalid parameters
 NRUNS "${SCRIPT}" --mistaken-parameter  # Invalid parameter
@@ -125,7 +125,7 @@ NOGREP 'projectBinaryData'
 clearData
 addData <<< "{\"key\": [$(seq -s , 1 100000)0]}"
 RUNS "${SCRIPT}"  # handles records bigger than 400 KB
-EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(25)\n1'
+EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(25)\n1'
 
 # Setup for tests counting data
 clearData
@@ -136,10 +136,20 @@ for ignore in {1..20}; do
 done
 
 # Quiet running
-RUNS "${SCRIPT}" -q -t 5
-EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(5)'
-RUNS "${SCRIPT}" --quiet -t 5
-EDIFF <<< $'TABLE(projects)\nMAX_ITEMS(5)'
+RUNS "${SCRIPT}" -q -t 5  # quiet running
+EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(5)'
+RUNS "${SCRIPT}" --quiet --all
+EDIFF <<-ALL_QUIET
+	DESCRIBE_TABLE
+	TABLE(projects)
+	SCAN
+	TABLE(projects)
+	MAX_ITEMS(25)
+	SCAN
+	TABLE(projects)
+	STARTING_TOKEN(25)
+	MAX_ITEMS(15)
+ALL_QUIET
 
 # Basic parameters
 RUNS "${SCRIPT}" --table testTable --total 19 --max-items 7  # does not go beyond total
@@ -164,9 +174,31 @@ ODIFF <<< $'5'
 RUNS countLines.sh -t 10 -m 7  # 10 total out of 40 with 7 increments
 ODIFF <<< $'10'
 
-# Test All ignores Total
+# Test --all
 RUNS countLines.sh --all --total 10  # reads all data despite total
-ODIFF <<< $'40'
+ODIFF <<< $'40'  # fetches all content
+RUNS "${SCRIPT}" --all --total 10 --no-timer  # shows how many records are going to be fetched
+EDIFF <<-ALL_OUTPUT
+	DESCRIBE_TABLE
+	TABLE(projects)
+	Total 40
+	SCAN
+	TABLE(projects)
+	MAX_ITEMS(25)
+	25 (62%)
+	SCAN
+	TABLE(projects)
+	STARTING_TOKEN(25)
+	MAX_ITEMS(15)
+	40 (100%)
+ALL_OUTPUT
+
+# Test survives bad binary data
+TODO OK false  # survive bad binary data
+
+# Test survives bad string data
+TODO OK false  # survive bad string data
+
 
 # vim: set ts=4 sw=4 tw=100 noet filetype=sh :
 
