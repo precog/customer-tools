@@ -177,7 +177,10 @@ SECONDS=0
 	done
 } | while read -r line; do
 	jq -r -c "${BINARY_DEFAULT_QUERY}" <<< "$line" | base64 --decode | gzip -d |
-		jq -r -c ". as \$line | input | ${OUTPUT_QUERY}" <(cat <<<"$line") <(cat)
+		jq -r -c ". as \$line | input | ${OUTPUT_QUERY}" <(cat <<<"$line") <(cat) || {
+            echo >&2 'Invalid JSON!'
+            cat >&2 <<<"$line"
+        }
 done
 
 # vim: set ts=4 sw=4 tw=100 noet :

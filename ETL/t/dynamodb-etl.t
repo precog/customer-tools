@@ -69,7 +69,7 @@ addData() {
 }
 
 # Tests
-PLAN 44
+PLAN 56
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -103,11 +103,41 @@ addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 RUNS "${SCRIPT}"  # converts text data into json
 OGREP '"projectData":{"S":{"a":"b"}}'
 
+# Survives bad string data
+clearData
+BADDATA='{"projectData": {"S": "bad data"}}'
+addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
+addData <<< "${BADDATA}"
+addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
+RUNS "${SCRIPT}" -q  # survives bad string data
+EGREP 'Invalid JSON!'
+EGREP "$(jq -c . <<<"${BADDATA}")"
+RUNS countLines.sh  # good records still read
+ODIFF <<< $'2'
+
 # Convert base64-encoded, gzipped string literals to json
 clearData
 addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
 RUNS "${SCRIPT}"  # converts binary data into json
 OGREP '"projectBinaryData":{"B":{"a":"b"}}'
+
+# Survives bad binary data
+clearData
+BAD1='{"projectBinaryData": {"B": "not base64-encoded"}}'
+BAD2='{"projectBinaryData": {"B": "'"$(echo "not gzipped" | base64)"'"}}'
+BAD3='{"projectBinaryData": {"B": "'"$(echo "not a json" | gzip -c | base64)"'"}}'
+addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
+addData <<< "${BAD1}"
+addData <<< "${BAD2}"
+addData <<< "${BAD3}"
+addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
+RUNS "${SCRIPT}" -q  # survives bad binary data
+EGREP 'Invalid JSON!'
+EGREP "$(jq -c . <<<"${BAD1}")"
+EGREP "$(jq -c . <<<"${BAD2}")"
+EGREP "$(jq -c . <<<"${BAD3}")"
+RUNS countLines.sh  # good records still read
+ODIFF <<< $'2'
 
 # Do not add string path unless present on input
 clearData
