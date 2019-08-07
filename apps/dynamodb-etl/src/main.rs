@@ -1,4 +1,22 @@
-use std::error;
+#![recursion_limit = "1024"]
+
+#[macro_use]
+extern crate error_chain;
+
+mod errors {
+    // Create the Error, ErrorKind, ResultExt, and Result types
+    error_chain! {
+        errors {
+            JqError(t: String) {
+                description("jq error")
+                display("jq error: {}", t)
+            }
+        }
+    }
+}
+
+use errors::*;
+
 use std::io::Read;
 use std::io::{self, BufRead};
 
@@ -6,21 +24,44 @@ use jq_rs;
 use base64::decode;
 use flate2::bufread::GzDecoder;
 use jq_rs::JqProgram;
+use std::error::Error;
 
-/** We are boxing errors since we'll just report and ignore them */
-type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
+quick_main!(run);
 
-fn main() {
+fn run() -> Result<()> {
     let bin_path = ".projectBinaryData.B";
     let bin_query = format!("{} // empty", bin_path);
     let bin_update = format!(".[0]{} = .[1] | .[0]", bin_path);
     let jq_bin_query = &mut jq_rs::compile(&bin_query).unwrap();
     let jq_bin_update = &mut jq_rs::compile(&bin_update).unwrap();
 
+    let text_path = ".projectData.S";
+    let text_update = format!("if {path} then {path} |= fromjson else . end", path = text_path);
+    let jq_text_update = &mut jq_rs::compile(&text_update).unwrap();
+
     let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        println!("{}", decode_json(line.unwrap().as_str(), jq_bin_query, jq_bin_update).unwrap())
+    for (index, line) in stdin.lock().lines().enumerate() {
+            let line_num = index + 1;
+            let line = line
+                .chain_err(|| "unable to unwrap line from enumerator")
+                .chain_err(|| format!("Error on line {}", line_num))?;
+            let recoded_bin = recode_binary_data(&line, jq_bin_query, jq_bin_update)
+                .chain_err(|| "unable to recode binary data")
+                .chain_err(|| format!("Error on line {}", line_num))?;
+            let recoded_text = jq_text_update.run(&recoded_bin)
+                .map_err( |e| jq_err("jq error running text update", e))
+                .chain_err(|| format!("Error on line {}", line_num))?;
+            println!("{}", recoded_text.trim());
     }
+
+    Ok(())
+}
+
+/// Convert jq error into a chained error
+fn jq_err(msg: &str, e: jq_rs::Error) -> errors::Error {
+    let message = format!("{}: {}", msg, e.description());
+    let result: Result<()> = Err(ErrorKind::JqError(message).into());
+    result.unwrap_err()
 }
 
 //    let json = r#"{ "projectBinaryData" : { "B": "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA=" } }"#;
@@ -32,18 +73,23 @@ fn main() {
 //        .unwrap();
 //    println!("No conversion: {}", s2);
 
-fn decode_json(json: &str, query: &mut JqProgram, update: &mut JqProgram) -> Result<String> {
-    let query_output = query.run(json)?;
+/// Replace strings containing base64-encoded, gzipped json with that json
+fn recode_binary_data(json: &str, query: &mut JqProgram, update: &mut JqProgram) -> Result<String> {
+    let query_output = query.run(json)
+        .map_err(|e| jq_err("jq error running binary query", e))?;
     let binary_data = raw_output(&query_output);
 
     if !binary_data.is_empty() {
-        let decoded = decode_binary_data(&(binary_data.trim()))?;
-        Ok(update.run(["[", json, ",", &decoded, "]"].concat().as_str())?)
+        let decoded = decode_binary_data(&(binary_data.trim()))
+            .chain_err(|| "error decoding the binary data")?;
+        update.run(["[", json, ",", &decoded, "]"].concat().as_str())
+            .map_err(|e| jq_err("jq error running binary update", e))
     } else {
         Ok(String::from(json))
     }
 }
 
+/// Trims newlines and removes quotes if json is string
 fn raw_output(json: &str) -> &str {
     let trimmed = json.trim();
     if trimmed.len() > 1 &&
@@ -55,12 +101,14 @@ fn raw_output(json: &str) -> &str {
     }
 }
 
-/** Decode a string created by gzipping and then base64 encoding a text */
+/// Decode a string created by gzipping and then base64 encoding a text
 fn decode_binary_data(base64_encoded_string: &str) -> Result<String> {
-    let gzipped_data = decode(base64_encoded_string)?;
+    let gzipped_data = decode(base64_encoded_string)
+        .chain_err(|| "failed to decode base64")?;
     let mut gz_decoder = GzDecoder::new(&*gzipped_data);
     let mut uncompressed_data = String::new();
-    gz_decoder.read_to_string(&mut uncompressed_data)?;
+    gz_decoder.read_to_string(&mut uncompressed_data)
+        .chain_err(|| "fail to decompress data")?;
     Ok(uncompressed_data)
 }
 
