@@ -1,0 +1,12 @@
+[package]
+name = "dynamodb-etl"
+version = "0.1.0"
+authors = ["Daniel Sobral <dcsobral@slamdata.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+jq-rs = "0.4.0"
+base64 = "0.10.1"
+flate2 = "1.0.9"
