@@ -3,6 +3,17 @@
 #[macro_use]
 extern crate error_chain;
 
+use std::error::Error;
+use std::io::{self, BufRead};
+use std::io::Read;
+
+use base64::decode;
+use flate2::bufread::GzDecoder;
+use jq_rs;
+use jq_rs::JqProgram;
+
+use errors::*;
+
 mod errors {
     // Create the Error, ErrorKind, ResultExt, and Result types
     error_chain! {
@@ -14,17 +25,6 @@ mod errors {
         }
     }
 }
-
-use errors::*;
-
-use std::io::Read;
-use std::io::{self, BufRead};
-
-use jq_rs;
-use base64::decode;
-use flate2::bufread::GzDecoder;
-use jq_rs::JqProgram;
-use std::error::Error;
 
 quick_main!(run);
 
@@ -101,7 +101,7 @@ fn raw_output(json: &str) -> &str {
     if trimmed.len() > 1 &&
         trimmed.chars().next().map_or_else(|| false, |c| c == '"') &&
         trimmed.chars().last().map_or_else(|| false, |c| c == '"') {
-        &trimmed[1..trimmed.len() - 2]
+        &trimmed[1..trimmed.len() - 1]
     } else {
         trimmed
     }
@@ -121,6 +121,14 @@ fn decode_binary_data(base64_encoded_string: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_raw_output() {
+        assert_eq!(raw_output("{}"), "{}");
+        assert_eq!(raw_output("{}\n"), "{}");
+        assert_eq!(raw_output(r#""string""#), "string");
+        assert_eq!(raw_output([r#""string""#, "\n"].concat().as_str()), "string");
+    }
 
     #[test]
     fn test_decode() {
