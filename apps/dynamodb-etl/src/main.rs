@@ -1,168 +1,326 @@
 #![recursion_limit = "1024"]
+#![warn(absolute_paths_not_starting_with_crate,deprecated_in_future,
+elided_lifetimes_in_paths,macro_use_extern_crate,missing_copy_implementations,
+missing_debug_implementations,single_use_lifetimes,unreachable_pub,unused_extern_crates,
+unused_import_braces,unused_lifetimes,unused_qualifications,unused_results)]
 
-#[macro_use]
-extern crate error_chain;
+mod errors;
+mod json_queries;
 
-use std::error::Error;
-use std::io::{self, BufRead};
-use std::io::Read;
+use std::io::{self, BufRead, Read, Write};
 
-use base64::decode;
-use flate2::bufread::GzDecoder;
-use jq_rs;
-use jq_rs::JqProgram;
+use ::error_chain::quick_main;
+use ::base64::decode;
+use ::flate2::bufread::GzDecoder;
+use ::structopt::{self, StructOpt};
 
-use errors::*;
-
-mod errors {
-    // Create the Error, ErrorKind, ResultExt, and Result types
-    error_chain! {
-        errors {
-            JqError(t: String) {
-                description("jq error")
-                display("jq error: {}", t)
-            }
-        }
-    }
-}
+use crate::errors::*;
+use crate::json_queries::*;
 
 quick_main!(run);
 
 const DEFAULT_BIN_PATH: &str = ".projectBinaryData.B";
 const DEFAULT_TEXT_PATH: &str = ".projectData.S";
 
+#[derive(StructOpt, Debug)]
+#[structopt(name = "dynamodb-etl")]
+struct Opt {
+
+}
+
 fn run() -> Result<()> {
-    let bin_path = DEFAULT_BIN_PATH;
-    let jq_bin_query = &mut jq_bin_query(bin_path);
-    let jq_bin_update = &mut jq_bin_update(bin_path);
-
-    let text_path = DEFAULT_TEXT_PATH;
-    let jq_text_update = &mut jq_text_update(text_path);
-
     let stdin = io::stdin();
-    for (index, line) in stdin.lock().lines().enumerate() {
-            let line_num = index + 1;
-            let line = line
-                .chain_err(|| "unable to unwrap line from enumerator")
-                .chain_err(|| format!("Error on line {}", line_num))?;
-            let recoded_bin = recode_binary_data(&line, jq_bin_query, jq_bin_update)
-                .chain_err(|| "unable to recode binary data")
-                .chain_err(|| format!("Error on line {}", line_num))?;
-            let recoded_text = jq_text_update.run(&recoded_bin)
-                .map_err( |e| jq_err("jq error running text update", e))
-                .chain_err(|| format!("Error on line {}", line_num))?;
-            println!("{}", recoded_text.trim());
+    let input = stdin.lock();
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+
+    let bin_path = DEFAULT_BIN_PATH;
+    let text_path = DEFAULT_TEXT_PATH;
+
+    // TODO: receive & use paths as optional CLI arguments
+    let bin_queries = &mut json_queries::Queries::new(bin_path)?;
+    let text_queries = &mut json_queries::Queries::new(text_path)?;
+
+
+    for (index, next_line) in input.lines().enumerate() {
+        let processed_line =
+            process_line(next_line.map_err(|e| e.into()), index, bin_queries, text_queries)?;
+        output.write_all(processed_line.as_ref())?;
     }
 
     Ok(())
 }
 
-fn jq_text_update(text_path: &str) -> JqProgram {
-    let text_update = format!("if {path} then {path} |= fromjson else . end", path = text_path);
-    jq_rs::compile(&text_update).unwrap()
-}
-
-fn jq_bin_update(bin_path: &str) -> JqProgram {
-    let bin_update = format!(".[0]{} = .[1] | .[0]", bin_path);
-    jq_rs::compile(&bin_update).unwrap()
-}
-
-fn jq_bin_query(bin_path: &str) -> JqProgram {
-    let bin_query = format!("{} // empty", bin_path);
-    jq_rs::compile(&bin_query).unwrap()
-}
-
-/// Convert jq error into a chained error
-fn jq_err(msg: &str, e: jq_rs::Error) -> errors::Error {
-    let message = format!("{}: {}", msg, e.description());
-    let result: Result<()> = Err(ErrorKind::JqError(message).into());
-    result.unwrap_err()
-}
-
-/// Replace strings containing base64-encoded, gzipped json with that json
-fn recode_binary_data(json: &str, query: &mut JqProgram, update: &mut JqProgram) -> Result<String> {
-    let query_output = query.run(json)
-        .map_err(|e| jq_err("jq error running binary query", e))?;
-    let binary_data = raw_output(&query_output);
-
-    if !binary_data.is_empty() {
-        let decoded = decode_binary_data(&(binary_data.trim()))
-            .chain_err(|| "error decoding the binary data")?;
-        update.run(["[", json, ",", &decoded, "]"].concat().as_str())
-            .map_err(|e| jq_err("jq error running binary update", e))
-    } else {
-        Ok(String::from(json))
+fn process_line(next_line: Result<String>,
+                index: usize,
+                bin_queries: &mut Queries,
+                text_queries: &mut Queries) -> Result<String> {
+    let line_num = index + 1;
+    let result = next_line
+        .and_then(|line| re_encode_json(&line, bin_queries, text_queries));
+    match result {
+        Err(ref error) if error.is_fatal() =>
+            result.chain_err(|| ErrorKind::LineNo(line_num, true)),
+        Err(_) =>
+            result.chain_err(|| ErrorKind::LineNo(line_num, false)),
+        _ => result
     }
 }
 
-/// Trims newlines and removes quotes if json is string
-fn raw_output(json: &str) -> &str {
-    let trimmed = json.trim();
-    if trimmed.len() > 1 &&
-        trimmed.chars().next().map_or_else(|| false, |c| c == '"') &&
-        trimmed.chars().last().map_or_else(|| false, |c| c == '"') {
-        &trimmed[1..trimmed.len() - 1]
+fn re_encode_json(str_line: &str, bin_queries: &mut Queries, text_queries: &mut Queries) -> Result<String> {
+    let re_encoded_bin = re_encode_binary_data(str_line, bin_queries)?;
+    re_encode_text_data(&re_encoded_bin, text_queries)
+}
+
+/// Replace strings containing json with that json
+fn re_encode_text_data(json: &str, queries: &mut Queries) -> Result<String> {
+    queries.update(&json)
+}
+
+/// Replace strings containing base64-encoded, gzipped json with that json
+fn re_encode_binary_data(json: &str, queries: &mut Queries) -> Result<String> {
+    let binary_data = queries.get(json)?;
+    if !binary_data.is_empty() {
+        let decoded = decode_binary_data(&(binary_data.trim()))?;
+        queries.set(json, &decoded)
     } else {
-        trimmed
+        Ok(raw_output(json))
     }
 }
 
 /// Decode a string created by gzipping and then base64 encoding a text
 fn decode_binary_data(base64_encoded_string: &str) -> Result<String> {
     let gzipped_data = decode(base64_encoded_string)
-        .chain_err(|| "failed to decode base64")?;
+        .chain_err(|| ErrorKind::Base64Error)?;
     let mut gz_decoder = GzDecoder::new(&*gzipped_data);
     let mut uncompressed_data = String::new();
-    gz_decoder.read_to_string(&mut uncompressed_data)
-        .chain_err(|| "fail to decompress data")?;
+    let _ = gz_decoder.read_to_string(&mut uncompressed_data)
+        .chain_err(|| ErrorKind::GzipError)?;
     Ok(uncompressed_data)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+    use ::assert_matches::assert_matches;
+//    use ::assert_matches::debug_assert_matches;
 
     #[test]
-    fn test_raw_output() {
-        assert_eq!(raw_output("{}"), "{}");
-        assert_eq!(raw_output("{}\n"), "{}");
-        assert_eq!(raw_output(r#""string""#), "string");
-        assert_eq!(raw_output([r#""string""#, "\n"].concat().as_str()), "string");
-    }
-
-    #[test]
-    fn test_decode() {
-        assert_eq!(decode_binary_data("H4sIABWa/lwCA6uu5QIABrCh3QMAAAA=").unwrap(),
-                   "{}\n")
+    fn test_decode_binary_data() {
+        let json = "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA=";
+        let result = decode_binary_data(json);
+        assert_matches!(result, Ok(ref actual) if actual == "{}\n")
     }
 
     #[test]
     fn test_decode_fail_base64() {
-        assert!(decode_binary_data("not base64-encoded").is_err(),
-                "data not base64-encoded should return an error")
+        let result = decode_binary_data("not base64-encoded");
+        assert_matches!(result, Err(Error(ErrorKind::Base64Error, _)));
+        assert_matches!(result, Err(ref error) if !error.is_fatal())
     }
 
     #[test]
     fn test_decode_fail_gzip() {
-        assert!(decode_binary_data("bm90IGd6aXBwZWQK").is_err(),
-                "data not gzipped should return an error")
+        let result = decode_binary_data("bm90IGd6aXBwZWQK");
+        assert_matches!(result, Err(Error(ErrorKind::GzipError, _)));
+        assert_matches!(result, Err(ref error) if !error.is_fatal())
     }
 
     #[test]
-    fn test_recode_binary_data() {
+    fn test_re_encode_binary_data() {
         let json = r#"{ "projectBinaryData" : { "B": "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA=" } }"#;
-        let update = &mut jq_bin_update(DEFAULT_BIN_PATH);
-        let query = &mut jq_bin_query(DEFAULT_BIN_PATH);
-        let s = recode_binary_data(json, query, update).unwrap();
-        assert_eq!(s.trim(), r#"{"projectBinaryData":{"B":{}}}"#)
+        let expected = r#"{"projectBinaryData":{"B":{}}}"#;
+        let queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let result = re_encode_binary_data(json, queries);
+        assert_matches!(result, Ok(ref actual) if actual == expected)
     }
 
     #[test]
-    fn test_record_binary_data_does_not_add_it() {
+    fn test_re_encode_binary_data_does_not_add_it() {
         let json = r#"{ "a": 1 }"#;
-        let update = &mut jq_bin_update(DEFAULT_BIN_PATH);
-        let query = &mut jq_bin_query(DEFAULT_BIN_PATH);
-        let s = recode_binary_data(json, query, update).unwrap();
-        assert_eq!(s, json)
+        let queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let result = re_encode_binary_data(json, queries);
+        assert_matches!(result, Ok(ref actual) if actual == json)
     }
+
+    #[test]
+    fn test_re_encode_binary_data_fail_not_encoded() {
+        let json = r#"{ "projectBinaryData" : { "B": {} } }"#;
+        let queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let result = re_encode_binary_data(json, queries);
+        assert_matches!(result, Err(ref error) if !error.is_fatal())
+    }
+
+    #[test]
+    fn test_re_encode_binary_data_fail_not_json() {
+        let json = r#"{ "projectBinaryData" : { "B": "H4sIAEafTF0AA8vMK0vMyUxRyCrOz+MCAIg5TZANAAAA" } }"#;
+        let queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let result = re_encode_binary_data(json, queries);
+        assert_matches!(result, Err(ref error) if !error.is_fatal())
+    }
+
+    #[test]
+    fn test_re_encode_text_data() {
+        let json = r#"{ "projectData" : { "S": "{}" } }"#;
+        let expected = r#"{"projectData":{"S":{}}}"#;
+        let queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = re_encode_text_data(json, queries);
+        assert_matches!(result, Ok(ref actual) if actual == expected)
+    }
+
+    #[test]
+    fn test_re_encode_text_data_does_not_add_it() {
+        let json = r#"{"a":1}"#;
+        let queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = re_encode_text_data(json, queries);
+        assert_matches!(result, Ok(ref actual) if actual == json)
+    }
+
+    #[test]
+    fn test_re_encode_text_data_fail_json() {
+        let json = r#"{ "projectData" : { "S": "invalid json" } }"#;
+        let queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = re_encode_text_data(json, queries);
+        assert_matches!(result, Err(ref error) if !error.is_fatal())
+    }
+
+    #[test]
+    fn test_re_encode_json_no_data() {
+        let json = r#"{"a":1}"#;
+        let expected = &json.to_owned();
+        let bin_queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let text_queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = re_encode_json(json, bin_queries, text_queries);
+        assert_matches!(result, Ok(ref actual) if actual == expected);
+    }
+
+    #[test]
+    fn test_re_encode_json_text_data() {
+        let json = r#"{ "projectData" : { "S": "{}" } }"#;
+        let expected = r#"{"projectData":{"S":{}}}"#;
+        let bin_queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let text_queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = re_encode_json(json, bin_queries, text_queries);
+        assert_matches!(result, Ok(ref actual) if actual == expected)
+    }
+
+    #[test]
+    fn test_re_encode_json_binary_data() {
+        let json = r#"{ "projectBinaryData" : { "B": "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA=" } }"#;
+        let expected = r#"{"projectBinaryData":{"B":{}}}"#;
+        let bin_queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let text_queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = re_encode_json(json, bin_queries, text_queries);
+        assert_matches!(result, Ok(ref actual) if actual == expected)
+    }
+
+    #[test]
+    fn test_re_encode_json_both_data() {
+        let json = r#"
+            {
+                "projectData" : { "S": "{}" },
+                "projectBinaryData" : { "B": "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA=" }
+            }
+        "#;
+        let expected = &r#"
+            {
+                "projectData" : { "S": {} },
+                "projectBinaryData" : { "B": {} }
+            }
+        "#.replace(|c: char| c.is_whitespace(), "");
+        let bin_queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let text_queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = re_encode_json(json, bin_queries, text_queries);
+        assert_matches!(result, Ok(ref actual) if actual == expected)
+    }
+
+    #[test]
+    fn test_re_encode_json_extra_data() {
+        let json = r#"
+            {
+                "a": 1,
+                "projectData": { "S": "{}" },
+                "projectBinaryData": { "B": "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA=" }
+            }
+        "#;
+        let expected = &r#"
+            {
+                "a": 1,
+                "projectData" : { "S": {} },
+                "projectBinaryData" : { "B": {} }
+            }
+        "#.replace(|c: char| c.is_whitespace(), "");
+        let bin_queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let text_queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = re_encode_json(json, bin_queries, text_queries);
+        assert_matches!(result, Ok(ref actual) if actual == expected)
+    }
+
+    #[test]
+    fn test_re_encode_json_bad_text_data() {
+        let json = r#"
+            {
+                "a": 1,
+                "projectData": { "S": "not json" },
+                "projectBinaryData": { "B": "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA=" }
+            }
+        "#;
+        let bin_queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let text_queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = re_encode_json(json, bin_queries, text_queries);
+        assert_matches!(result, Err(ref error) if !error.is_fatal())
+    }
+
+    #[test]
+    fn test_re_encode_json_bad_binary_data() {
+        let json = r#"
+            {
+                "a": 1,
+                "projectData": { "S": "{}" },
+                "projectBinaryData": { "B": "not encoded" }
+            }
+        "#;
+        let bin_queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let text_queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = re_encode_json(json, bin_queries, text_queries);
+        assert_matches!(result, Err(ref error) if !error.is_fatal())
+    }
+
+    #[test]
+    fn test_process_line() {
+        let json = r#"
+            {
+                "a": 1,
+                "projectData": { "S": "{}" },
+                "projectBinaryData": { "B": "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA=" }
+            }
+        "#;
+        let expected = &r#"
+            {
+                "a": 1,
+                "projectData" : { "S": {} },
+                "projectBinaryData" : { "B": {} }
+            }
+        "#.replace(|c: char| c.is_whitespace(), "");
+        let bin_queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let text_queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = process_line(Ok(json.to_owned()), 0, bin_queries, text_queries);
+        assert_matches!(result, Ok(ref actual) if actual == expected)
+    }
+
+    #[test]
+    fn test_process_line_invalid_unicode() {
+        let invalid_two_octet_sequence = [0xc3u8, 0x28u8];
+        let cursor = Cursor::new(invalid_two_octet_sequence);
+        let mut lines_iter = cursor.lines();
+        let bin_queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let text_queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let line = lines_iter.next().unwrap().map_err(|e| e.into());
+        let result = process_line(line, 17, bin_queries, text_queries);
+        assert_matches!(result, Err(Error(ErrorKind::LineNo(18, false), _)))
+    }
+
+    // TODO: test run: changes binary, changes text, changes both, leaves absent alone
+    // TODO: test run: report/skip bad record, bad binary, bad text
 }
