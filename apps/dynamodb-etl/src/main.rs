@@ -10,7 +10,7 @@ mod json_queries;
 use std::io::{self, BufRead, Read, Write};
 
 use ::error_chain::quick_main;
-use ::base64::decode;
+use ::base64;
 use ::flate2::bufread::GzDecoder;
 use ::structopt::{self, StructOpt};
 
@@ -132,7 +132,7 @@ fn re_encode_binary_data(json: &str, queries: &mut Queries) -> Result<String> {
 
 /// Decode a string created by gzipping and then base64 encoding a text
 fn decode_binary_data(base64_encoded_string: &str) -> Result<String> {
-    let gzipped_data = decode(base64_encoded_string)
+    let gzipped_data = base64::decode(base64_encoded_string)
         .chain_err(|| ErrorKind::Base64Error)?;
     let mut gz_decoder = GzDecoder::new(&*gzipped_data);
     let mut uncompressed_data = String::new();
@@ -370,7 +370,11 @@ mod tests {
         let text_expected = r#"{"projectData":{"S":{}}}"#;
         let bad_bin = r#"{ "projectBinaryData" : { "B": "H4sIAEafTF0AA8vMK0vMyUxRyCrOz+MCAIg5TZANAAAA" } }"#;
         let bad_text = r#"{ "projectData" : { "S": "invalid json" } }"#;
-        let data = [bad_text, text_json, bad_bin, bin_json].join("\n");
+        let invalid_two_octet_sequence = [0xc3u8, 0x28u8];
+        let invalid_string = unsafe {
+            String::from_utf8_unchecked(invalid_two_octet_sequence.to_vec())
+        };
+        let data = [bad_text, text_json, bad_bin, &invalid_string, bin_json].join("\n");
         let input = Cursor::new(data);
         let mut output = Vec::<u8>::with_capacity(1024);
         let bin_queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
