@@ -41,7 +41,7 @@ const DEFAULT_TEXT_PATH: &str = ".projectData.S";
 /// on the .path.to.string, but not binary data, and ".no.binary.path"
 /// is not an existing path in the input data.
 #[derive(Debug,StructOpt)]
-#[structopt(name = "dynamodb-etl", version = "", author = "")]
+#[structopt(name = "dynamodb-etl", about = "", author = "")]
 struct Opt {
     /// Binary data path
     #[structopt(short, long, default_value = ".projectBinaryData.B")]
@@ -63,11 +63,16 @@ fn run() -> Result<()> {
     let bin_path = &opt.binpath;
     let text_path = &opt.textpath;
 
-    // TODO: receive & use paths as optional CLI arguments
     let bin_queries = &mut json_queries::Queries::new(bin_path)?;
     let text_queries = &mut json_queries::Queries::new(text_path)?;
 
-    // TODO: extract and test
+    process_input(input, &mut output, bin_queries, text_queries)
+}
+
+fn process_input(input: impl BufRead,
+                 mut output: impl Write,
+                 bin_queries: &mut Queries,
+                 text_queries: &mut Queries) -> Result<()> {
     for (index, next_line) in input.lines().enumerate() {
         let processed_line =
             process_line(next_line.map_err(|e| e.into()), index, bin_queries, text_queries);
@@ -82,7 +87,6 @@ fn run() -> Result<()> {
             Ok(ref message) => writeln!(output, "{}", message)?,
         }
     }
-
     Ok(())
 }
 
@@ -92,7 +96,10 @@ fn process_line(next_line: Result<String>,
                 text_queries: &mut Queries) -> Result<String> {
     let line_num = index + 1;
     let result = next_line
-        .and_then(|line| re_encode_json(&line, bin_queries, text_queries));
+        .and_then(|line| {
+            re_encode_json(&line, bin_queries, text_queries)
+        });
+    // TODO: print "line" on error, if available
     match result {
         Err(ref error) if error.is_fatal() =>
             result.chain_err(|| ErrorKind::LineNo(line_num, true)),
@@ -139,7 +146,6 @@ mod tests {
     use super::*;
     use std::io::Cursor;
     use ::assert_matches::assert_matches;
-//    use ::assert_matches::debug_assert_matches;
 
     #[test]
     fn test_decode_binary_data() {
@@ -356,6 +362,31 @@ mod tests {
         assert_matches!(result, Err(Error(ErrorKind::LineNo(18, false), _)))
     }
 
-    // TODO: test run: changes binary, changes text, changes both, leaves absent alone
-    // TODO: test run: report/skip bad record, bad binary, bad text
+    #[test]
+    fn test_process_input() {
+        let bin_json = r#"{ "projectBinaryData" : { "B": "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA=" } }"#;
+        let bin_expected = r#"{"projectBinaryData":{"B":{}}}"#;
+        let text_json = r#"{ "projectData" : { "S": "{}" } }"#;
+        let text_expected = r#"{"projectData":{"S":{}}}"#;
+        let bad_bin = r#"{ "projectBinaryData" : { "B": "H4sIAEafTF0AA8vMK0vMyUxRyCrOz+MCAIg5TZANAAAA" } }"#;
+        let bad_text = r#"{ "projectData" : { "S": "invalid json" } }"#;
+        let data = [bad_text, text_json, bad_bin, bin_json].join("\n");
+        let input = Cursor::new(data);
+        let mut output = Vec::<u8>::with_capacity(1024);
+        let bin_queries = &mut Queries::new(DEFAULT_BIN_PATH).unwrap();
+        let text_queries = &mut Queries::new(DEFAULT_TEXT_PATH).unwrap();
+        let result = process_input(input, &mut output, bin_queries, text_queries);
+        assert_matches!(result, Ok(()));
+        let result_as_text = std::str::from_utf8(&output);
+        if let Ok(text) = result_as_text {
+            let lines = text.lines().collect::<Vec<&str>>();
+            assert_eq!(lines.len(), 2, "Expected 2 output lines, got {}", lines.len());
+            assert_eq!(lines[1], bin_expected, "Unexpected binary path decoding");
+            assert_eq!(lines[0], text_expected, "Unexpected text path decoding");
+        } else {
+            panic!("Unexpected error on output: {:?}\nOutput: {:?}", result_as_text, result);
+        }
+    }
+
+    // TODO: assert stderr output on bad input data from process_input
 }
