@@ -147,6 +147,8 @@ mod tests {
     use std::io::Cursor;
     use ::assert_matches::assert_matches;
 
+    // TODO: use serde-json to specify json data on tests
+
     #[test]
     fn test_decode_binary_data() {
         let json = "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA=";

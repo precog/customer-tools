@@ -2,7 +2,6 @@ os:
   - linux
 dist:
   - bionic
-sudo: required
 branches:
   except:
     - /^v\d+\.\d+\.\d+$/ # don't redundantly build tags
@@ -16,12 +15,6 @@ matrix:
       rust:
         - stable
         # Or maybe - 1.36.0
-      env:
-        # Ubuntu library does not come with a static jq or onig library
-        #- JQ_LIB_STATIC=1
-        #- ONIG_LIB_STATIC=1
-        - JQ_LIB_DIR=/usr/lib/x86_64-linux-gnu
-        - ONIG_LIB_DIR=/usr/lib/x86_64-linux-gnu
       cache:
         - cargo
       before_script:
@@ -30,7 +23,6 @@ matrix:
         - free && cat /proc/meminfo
         - cd apps/dynamodb-etl
         - rustup component add clippy
-        - sudo apt-get install -y libjq1 libjq-dev libonig4 libonig-dev
       script:
         - cargo clippy --all-targets --all-features -- -D warnings
         - cargo check --all-targets --all-features
