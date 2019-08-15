@@ -17,8 +17,11 @@ matrix:
         - stable
         # Or maybe - 1.36.0
       env:
-        - JQ_LIB_STATIC=1
-        - ONIG_LIB_STATIC=1
+        # Ubuntu library does not come with a static jq or onig library
+        #- JQ_LIB_STATIC=1
+        #- ONIG_LIB_STATIC=1
+        - JQ_LIB_DIR=/usr/lib/x86_64-linux-gnu
+        - ONIG_LIB_DIR=/usr/lib/x86_64-linux-gnu
       cache:
         - cargo
       before_script:
