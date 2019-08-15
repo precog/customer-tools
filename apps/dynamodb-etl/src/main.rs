@@ -19,33 +19,68 @@ use crate::json_queries::*;
 
 quick_main!(run);
 
+#[cfg(test)]
 const DEFAULT_BIN_PATH: &str = ".projectBinaryData.B";
+#[cfg(test)]
 const DEFAULT_TEXT_PATH: &str = ".projectData.S";
 
-#[derive(StructOpt, Debug)]
-#[structopt(name = "dynamodb-etl")]
+/// Rewrites json replacing string field values with their json content
+///
+/// Paths are specified as .x.y.z for { "x": { "y": { "z": data }}}. More
+/// generally, they must be valid "jq" paths.
+///
+/// Binary paths must point to a string that contains a base64-encoded,
+/// gzipped json, so that "base64 --decode | gzip -d" will turn that
+/// string into valid json.
+///
+/// String paths must point to a string that contains valid json. For
+/// example, .x in { "x": "{ \"a\": 5 }" }.
+///
+/// Use a non-existing path if there's no binary or string path. For
+/// example, ".no.binary.path .path.to.string" if there's string data
+/// on the .path.to.string, but not binary data, and ".no.binary.path"
+/// is not an existing path in the input data.
+#[derive(Debug,StructOpt)]
+#[structopt(name = "dynamodb-etl", version = "", author = "")]
 struct Opt {
+    /// Binary data path
+    #[structopt(short, long, default_value = ".projectBinaryData.B")]
+    binpath: String,
 
+    /// Text data path
+    #[structopt(short, long, default_value = ".projectData.S")]
+    textpath: String,
 }
 
 fn run() -> Result<()> {
+    let opt: Opt = Opt::from_args();
+
     let stdin = io::stdin();
     let input = stdin.lock();
     let stdout = io::stdout();
     let mut output = stdout.lock();
 
-    let bin_path = DEFAULT_BIN_PATH;
-    let text_path = DEFAULT_TEXT_PATH;
+    let bin_path = &opt.binpath;
+    let text_path = &opt.textpath;
 
     // TODO: receive & use paths as optional CLI arguments
     let bin_queries = &mut json_queries::Queries::new(bin_path)?;
     let text_queries = &mut json_queries::Queries::new(text_path)?;
 
-
+    // TODO: extract and test
     for (index, next_line) in input.lines().enumerate() {
         let processed_line =
-            process_line(next_line.map_err(|e| e.into()), index, bin_queries, text_queries)?;
-        output.write_all(processed_line.as_ref())?;
+            process_line(next_line.map_err(|e| e.into()), index, bin_queries, text_queries);
+        match processed_line {
+            Err(ref error) if error.is_fatal() => processed_line.map(|_| ())?,
+            Err(ref error) => {
+                eprintln!("Error: {}", error);
+                for e in error.iter().skip(1) {
+                    eprintln!("caused by: {}", e);
+                }
+            },
+            Ok(ref message) => writeln!(output, "{}", message)?,
+        }
     }
 
     Ok(())
