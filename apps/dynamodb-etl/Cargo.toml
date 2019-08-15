@@ -7,6 +7,15 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# Requires environment variables JQ_LIB_DIR and ONIG_LIB_DIR
+# To statically link those libraries, JQ_LIB_STATIC and ONIG_LIB_STATIC
+# ONIG can be ommitted with JQ_NO_ONIG, _if_ jq was built without onig
 jq-rs = "0.4.0"
+#jq-rs = { git = "https://github.com/onelson/jq-rs", rev = "1f30a1c915f767309d99c2930a9b761f35741d27"}
 base64 = "0.10.1"
 flate2 = "1.0.9"
+error-chain = "0.12.1"
+structopt = "0.2.18"
+
+[dev-dependencies]
+assert_matches = "1.3.0"
