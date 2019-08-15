@@ -1,2 +1,44 @@
-language: shell
-script: scripts/build.sh
+os:
+  - linux
+dist:
+  - bionic
+sudo: required
+branches:
+  except:
+    - /^v\d+\.\d+\.\d+$/ # don't redundantly build tags
+    - /^.*-version-bump-.*$/
+matrix:
+  include:
+    - language: shell
+      script:
+        - scripts/build.sh
+    - language: rust
+      rust:
+        - stable
+        # Or maybe - 1.36.0
+      env:
+        - JQ_LIB_STATIC=1
+        - ONIG_LIB_STATIC=1
+      cache:
+        - cargo
+      before_script:
+        # check what travis VMs we're using
+        - nproc 2>/dev/null && python -c 'import multiprocessing;print multiprocessing.cpu_count()'
+        - free && cat /proc/meminfo
+        - cd apps/dynamodb-etl
+        - rustup component add clippy
+        - sudo apt-get install -y libjq1 libjq-dev libonig4 libonig-dev
+      script:
+        - cargo clippy --all-targets --all-features -- -D warnings
+        - cargo check --all-targets --all-features
+        - cargo build --verbose
+        - cargo test --verbose
+        - cargo build --release --verbose
+      # deploy:
+      #  provider: releases
+      #  api_key: "GITHUB OAUTH TOKEN"
+      #  file: "k"
+      #  skip_cleanup: true
+      #  on:
+      #    tags: true
+
