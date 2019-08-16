@@ -1,2 +1,43 @@
-language: shell
-script: scripts/build.sh
+os:
+  - linux
+dist:
+  - bionic
+branches:
+  except:
+    - /^v\d+\.\d+\.\d+$/ # don't redundantly build tags
+    - /^.*-version-bump-.*$/
+deploy:
+  provider: releases
+  api_key:
+    secure: "oImiw4519op4e9DxYm47XlGnIpQJsLNRCEJT7PxVtyErTWInXGfQzwgpmAPud3o4xMBtYImhU8ozFYCl/p8Kppkj6maoI9Mh86Rm2FwA0R4QRjrUv0j2xayAoWygMOFCTHRDPeTQWEiyDP037SFvfI5vbjF9YWrq8WeN6OIyD4qApbTZ7eKyafEwKjt+iqRxpjN7Le1UszbdLdlQH0urpN/fskTavkXhNy+KVW95WaUxYT+9umQOGUkSfr2GrOjkl4P1d3trlKg/rCJwASYm7x5YljNXIEPTc9KeS41T5Zwki+kXRVKrdXasZs9PDHW5G16SL0FRPaDeU1ljENp4G+bb6mQNqaCFwsMVuNifqfmcrRvbacxqOuiD9cQ/wM0nfOgsULgtI+gP0JJRwjADeCTnLEGl3cqKuqbZUXPiU/wsWYDYX8R4/+EmNThEVLwKl459KEFVtMDUJRBu9OlAhvAmitYyboBpytDwWOd6UHZdtXqNsd4Rvi7LhwWtEizev0TVzYCxPTJu9/ffFgr4lWdoW3YThDI5FnbVRTIcrTH6TtGkSQMHQhmLOXDGUgxuWmw8k5x8IXVq5W74MAcV7a8oh2Nx6DGIxFr/IiaqkVIbB7DKVZ0ushtPcv6R6CDYl+kJRQPMb1pJ0rJY/23G4dCcNLf9fr9NfeNrd80lPLw="
+  file: apps/dynamodb-etl/target/release/dynamodb-etl
+  skip_cleanup: true
+  draft: true
+  on:
+    tags: false
+    all_branches: true
+    # Omit tagged builds and publish on master and backport/*
+    condition: $TRAVIS_TAG = '' && ($TRAVIS_BRANCH == "master" || $TRAVIS_BRANCH == backport/*)
+    repo: slamdata/customer-tools
+matrix:
+  include:
+    - language: shell
+      script:
+        - scripts/build.sh
+    - language: rust
+      rust:
+        - stable  # Or maybe - 1.36.0
+      cache:
+        - cargo
+      before_script:
+        # check what travis VMs we're using
+        - nproc 2>/dev/null && python -c 'import multiprocessing;print multiprocessing.cpu_count()'
+        - free && cat /proc/meminfo
+        - cd apps/dynamodb-etl
+        - rustup component add clippy
+      script:
+        - cargo clippy --all-targets --all-features -- -D warnings
+        - cargo check --all-targets --all-features
+        - cargo build --verbose
+        - cargo test --verbose
+        - cargo build --release --verbose
