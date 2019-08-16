@@ -6,6 +6,18 @@ branches:
   except:
     - /^v\d+\.\d+\.\d+$/ # don't redundantly build tags
     - /^.*-version-bump-.*$/
+deploy:
+  provider: releases
+  api_key:
+    secure: "rv2kLOtQGRZyUnh9gRCAbKwoyr1fPEZ/Lyfvdt80ZpGXQC73mXAeYXa6pABnbVpwlU1Qf7oBHfr3P3tpLS9VB0ocp4guG1/bwzG1tRpxnHPWgOtVd0VT7eGaomjTfpfAFFVUvXwRCHfCTmUXgV2jSlEGrG+1X1Xp9gmiSSfxHJWZwMaSCMBCeP4MMNhj5Zt4IdoOb0n4Ogn0CRGzrj7+Kx6F6DStJi2sGo5RJLTDakUtLMGZffZzSsMjA7LPJttOgj4n/WtyyNn6+zIIFsB/BFUSQE61Sp52oIsxAKqXTaw7p95gdwPNY8FFEWHxuL7I/3mjQ30nO2N5UY2tV1hTpcZ7VNo3Lmbs4jvvtFv7ZRU3Ws1Q413HPrBHKnp8m2bPVDgTfQJWsosG0J2X8OV2+oWGi7q/2R+UwACuNFzxp7brqHzXUilDpnX+uEVBF8vQPKt9cg07BmgBic3nBiGkE6T7ySfYyD/xhjD1f7VgXGwgRdaUphiN/NRvmv6+SlrDxqs8Du0IuaKBhUn9Mrana6VwlKRhrG8XG8UtmkEKXeZo4ARUv/6gPwWFiTAtK+Qxk335GrgcLI27aLh/o9O0gz8/d3hFCXf40vdD8m9yE+Y6YyC4dfNQwIBBdk6FXOwgnRtIAe+vG0luhd8kHq4eSQxL0pTvv6/AEJmhfCbtuEw="
+  file: apps/dynamodb-etl/target/release/dynamodb-etl
+  skip_cleanup: true
+  draft: true
+  on:
+    tags: false
+    all_branches: true
+    # Omit tagged builds and publish on master and backport/*
+    condition: $TRAVIS_TAG = '' && ($TRAVIS_BRANCH == "master" || $TRAVIS_BRANCH == backport/*)
 matrix:
   include:
     - language: shell
@@ -13,8 +25,7 @@ matrix:
         - scripts/build.sh
     - language: rust
       rust:
-        - stable
-        # Or maybe - 1.36.0
+        - stable  # Or maybe - 1.36.0
       cache:
         - cargo
       before_script:
@@ -29,11 +40,3 @@ matrix:
         - cargo build --verbose
         - cargo test --verbose
         - cargo build --release --verbose
-      # deploy:
-      #  provider: releases
-      #  api_key: "GITHUB OAUTH TOKEN"
-      #  file: "k"
-      #  skip_cleanup: true
-      #  on:
-      #    tags: true
-
