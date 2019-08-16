@@ -9,7 +9,7 @@ branches:
 deploy:
   provider: releases
   api_key:
-    secure: "rv2kLOtQGRZyUnh9gRCAbKwoyr1fPEZ/Lyfvdt80ZpGXQC73mXAeYXa6pABnbVpwlU1Qf7oBHfr3P3tpLS9VB0ocp4guG1/bwzG1tRpxnHPWgOtVd0VT7eGaomjTfpfAFFVUvXwRCHfCTmUXgV2jSlEGrG+1X1Xp9gmiSSfxHJWZwMaSCMBCeP4MMNhj5Zt4IdoOb0n4Ogn0CRGzrj7+Kx6F6DStJi2sGo5RJLTDakUtLMGZffZzSsMjA7LPJttOgj4n/WtyyNn6+zIIFsB/BFUSQE61Sp52oIsxAKqXTaw7p95gdwPNY8FFEWHxuL7I/3mjQ30nO2N5UY2tV1hTpcZ7VNo3Lmbs4jvvtFv7ZRU3Ws1Q413HPrBHKnp8m2bPVDgTfQJWsosG0J2X8OV2+oWGi7q/2R+UwACuNFzxp7brqHzXUilDpnX+uEVBF8vQPKt9cg07BmgBic3nBiGkE6T7ySfYyD/xhjD1f7VgXGwgRdaUphiN/NRvmv6+SlrDxqs8Du0IuaKBhUn9Mrana6VwlKRhrG8XG8UtmkEKXeZo4ARUv/6gPwWFiTAtK+Qxk335GrgcLI27aLh/o9O0gz8/d3hFCXf40vdD8m9yE+Y6YyC4dfNQwIBBdk6FXOwgnRtIAe+vG0luhd8kHq4eSQxL0pTvv6/AEJmhfCbtuEw="
+    secure: "oImiw4519op4e9DxYm47XlGnIpQJsLNRCEJT7PxVtyErTWInXGfQzwgpmAPud3o4xMBtYImhU8ozFYCl/p8Kppkj6maoI9Mh86Rm2FwA0R4QRjrUv0j2xayAoWygMOFCTHRDPeTQWEiyDP037SFvfI5vbjF9YWrq8WeN6OIyD4qApbTZ7eKyafEwKjt+iqRxpjN7Le1UszbdLdlQH0urpN/fskTavkXhNy+KVW95WaUxYT+9umQOGUkSfr2GrOjkl4P1d3trlKg/rCJwASYm7x5YljNXIEPTc9KeS41T5Zwki+kXRVKrdXasZs9PDHW5G16SL0FRPaDeU1ljENp4G+bb6mQNqaCFwsMVuNifqfmcrRvbacxqOuiD9cQ/wM0nfOgsULgtI+gP0JJRwjADeCTnLEGl3cqKuqbZUXPiU/wsWYDYX8R4/+EmNThEVLwKl459KEFVtMDUJRBu9OlAhvAmitYyboBpytDwWOd6UHZdtXqNsd4Rvi7LhwWtEizev0TVzYCxPTJu9/ffFgr4lWdoW3YThDI5FnbVRTIcrTH6TtGkSQMHQhmLOXDGUgxuWmw8k5x8IXVq5W74MAcV7a8oh2Nx6DGIxFr/IiaqkVIbB7DKVZ0ushtPcv6R6CDYl+kJRQPMb1pJ0rJY/23G4dCcNLf9fr9NfeNrd80lPLw="
   file: apps/dynamodb-etl/target/release/dynamodb-etl
   skip_cleanup: true
   draft: true
@@ -18,6 +18,7 @@ deploy:
     all_branches: true
     # Omit tagged builds and publish on master and backport/*
     condition: $TRAVIS_TAG = '' && ($TRAVIS_BRANCH == "master" || $TRAVIS_BRANCH == backport/*)
+    repo: slamdata/customer-tools
 matrix:
   include:
     - language: shell
