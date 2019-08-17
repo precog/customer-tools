@@ -1,11 +1,14 @@
-os:
-  - linux
-dist:
-  - bionic
+os: linux
+dist: bionic
 branches:
   except:
     - /^v\d+\.\d+\.\d+$/ # don't redundantly build tags
     - /^.*-version-bump-.*$/
+before_install:
+  # check what travis VMs we're using
+  - nproc 2>/dev/null && python -c 'import multiprocessing;print multiprocessing.cpu_count()'
+  - free && cat /proc/meminfo
+  - echo "Travis Compiler ${TRAVIS_COMPILER}"
 deploy:
   provider: releases
   api_key:
@@ -14,25 +17,30 @@ deploy:
   skip_cleanup: true
   draft: true
   on:
+    # Omit tagged builds
     tags: false
     all_branches: true
-    # Omit tagged builds and publish on master and backport/*
-    condition: $TRAVIS_TAG = '' && ($TRAVIS_BRANCH == "master" || $TRAVIS_BRANCH == backport/*)
+    # Publish only on Rust jobs, on master and backport/* -- cannot be done with "branches" when "tags" is false
+    # Maybe use TRAVIS_RUST_VERSION instead of TRAVIS_JOB_NAME?
+    condition: $TRAVIS_JOB_NAME == "Rust" && ($TRAVIS_BRANCH == "master" || $TRAVIS_BRANCH == backport/*)
     repo: slamdata/customer-tools
+stages:
+  - name: deploy
+    # require the branch name to be master (note for PRs this is the base branch name)
+    if: branch = master
 matrix:
   include:
-    - language: shell
+    - name: "Scripts"
+      language: shell
       script:
         - scripts/build.sh
-    - language: rust
+    - name: "Rust"
+      language: rust
       rust:
         - stable  # Or maybe - 1.36.0
       cache:
         - cargo
       before_script:
-        # check what travis VMs we're using
-        - nproc 2>/dev/null && python -c 'import multiprocessing;print multiprocessing.cpu_count()'
-        - free && cat /proc/meminfo
         - cd apps/dynamodb-etl
         - rustup component add clippy
       script:
