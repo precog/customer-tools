@@ -37,7 +37,7 @@ matrix:
     - name: "Rust"
       language: rust
       rust:
-        - stable  # Or maybe - 1.36.0
+        - 1.36.0
       cache:
         - cargo
       before_script:
