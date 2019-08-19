@@ -85,7 +85,7 @@ impl ToError for jq_rs::Error {
         match self {
             jq_rs::Error::System { ref reason } =>
                 match reason {
-                    Some(message) if message.starts_with("Parse error:") =>
+                    Some(message) if message.starts_with("JQ: Parse error:") =>
                         ErrorKind::JqParseError(when.to_owned(), message[12..].to_owned()).into(),
                     _ => ErrorKind::JqError(when.to_owned(), format!("{}", self)).into()
                 },
