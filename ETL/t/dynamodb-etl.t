@@ -177,8 +177,8 @@ EDIFF <<-ALL_QUIET
 	MAX_ITEMS(25)
 	SCAN
 	TABLE(projects)
+	MAX_ITEMS(25)
 	STARTING_TOKEN(25)
-	MAX_ITEMS(15)
 ALL_QUIET
 
 # Basic parameters
@@ -207,7 +207,7 @@ ODIFF <<< $'10'
 # Test --all
 RUNS countLines.sh --all --total 10  # reads all data despite total
 ODIFF <<< $'40'  # fetches all content
-RUNS "${SCRIPT}" --all --total 10 --no-timer  # shows how many records are going to be fetched
+RUNS "${SCRIPT}" --all --total 10 ---no-timer  # shows how many records are going to be fetched
 EDIFF <<-ALL_OUTPUT
 	DESCRIBE_TABLE
 	TABLE(projects)
@@ -218,8 +218,8 @@ EDIFF <<-ALL_OUTPUT
 	25 (62%)
 	SCAN
 	TABLE(projects)
+	MAX_ITEMS(25)
 	STARTING_TOKEN(25)
-	MAX_ITEMS(15)
 	40 (100%)
 ALL_OUTPUT
 
