@@ -19,8 +19,8 @@ use crate::json_queries::*;
 
 quick_main!(run);
 
-const DEFAULT_BIN_PATH: &'static str = ".projectBinaryData.B";
-const DEFAULT_TEXT_PATH: &'static str = ".projectData.S";
+const DEFAULT_BIN_PATH: &str = ".projectBinaryData.B";
+const DEFAULT_TEXT_PATH: &str = ".projectData.S";
 
 /// Rewrites json replacing string field values with their json content
 ///
