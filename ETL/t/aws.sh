@@ -27,6 +27,18 @@ case "$1" in
 		INDEX="$1"
 		shift
 		;;
+	--segment)
+		shift
+		echo >&2 "SEGMENT($1)"
+		SEGMENT="$1"
+		shift
+		;;
+	--total-segments)
+		shift
+		echo >&2 "SEGMENTS($1)"
+		SEGMENTS="$1"
+		shift
+		;;
 	scan)
 		shift
 		echo >&2 "SCAN"
@@ -50,9 +62,20 @@ if [[ -n $DESCRIBE_TABLE ]]; then
 elif [[ -n $SCAN ]]; then
 	: "${INDEX:=0}"
 	: "${LENGTH:=5}"
-	NEXT=$((INDEX+LENGTH))
-	cat "${FILES[@]:${INDEX}:${LENGTH}}" |
-		jq --slurp "{Items:.} | if $NEXT < ${#FILES[@]} then .+{NextToken:$NEXT} else . end"
+	: "${SEGMENT:=0}"
+	: "${SEGMENTS:=1}"
+	PARTITION=$((${#FILES[@]} / SEGMENTS))
+	START=$((PARTITION * SEGMENT))
+	if [[ $((SEGMENT + 1)) -eq $SEGMENTS ]]; then
+		END="${#FILES[@]}"
+	else
+		END=$((START + PARTITION))
+	fi
+	POSITION=$((START + INDEX))
+	NEXT=$((INDEX + LENGTH))
+	#echo >&2 "FILES ${#FILES[@]} SEGMENT $SEGMENT SEGMENTS $SEGMENTS PARTITION $PARTITION START $START END $END INDEX $INDEX POSITION $POSITION NEXT $NEXT"
+	cat "${FILES[@]:${POSITION}:${LENGTH}}" |
+		jq --slurp "{Items:.} | if $NEXT < $END then .+{NextToken:$NEXT} else . end" #| tee /dev/fd/2
 fi
 
 

@@ -16,7 +16,7 @@ source "$(dirname "$0")/osht.sh"
 set +euo pipefail
 
 # Tests
-PLAN 54
+PLAN 69
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -170,5 +170,23 @@ EDIFF <<-ALL_OUTPUT
 	40 (100%)
 ALL_OUTPUT
 
-# vim: set ts=4 sw=4 tw=100 noet filetype=sh :
+# Test two parallel workers
+RUNS "${SCRIPT}" --total 20 --max-items 5 --workers 2  # two parallel workers
+EGREP "SEGMENTS(2)"
+EGREP "SEGMENT(0)"
+EGREP "SEGMENT(1)"
+NEGREP "SEGMENT(2)"
+EGREP "Worker #0: 5"
+EGREP "Worker #1: 5"
+EGREP "Worker #0: 10"
+EGREP "Worker #1: 10"
 
+# Test three parallel workers
+RUNS countLines.sh --total 20 --max-items 5 --workers 3  # three parallel workers
+EGREP "SEGMENTS(3)"
+EGREP "SEGMENT(0)"
+EGREP "SEGMENT(1)"
+EGREP "SEGMENT(2)"
+ODIFF <<< $'18'
+
+# vim: set ts=4 sw=4 sts=4 tw=100 noet filetype=sh :
