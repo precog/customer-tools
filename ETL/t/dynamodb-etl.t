@@ -69,7 +69,7 @@ addData() {
 }
 
 # Tests
-PLAN 56
+PLAN 54
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -222,13 +222,6 @@ EDIFF <<-ALL_OUTPUT
 	STARTING_TOKEN(25)
 	40 (100%)
 ALL_OUTPUT
-
-# Test survives bad binary data
-TODO OK false  # survive bad binary data
-
-# Test survives bad string data
-TODO OK false  # survive bad string data
-
 
 # vim: set ts=4 sw=4 tw=100 noet filetype=sh :
 

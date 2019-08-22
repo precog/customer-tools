@@ -1,3 +1,7 @@
+# Exclude files I use for manual testing
+ETL/*.json
+ETL/xa?
+
 # Created by .ignore support plugin (hsz.mobi)
 ### Windows template
 # Windows thumbnail cache files
