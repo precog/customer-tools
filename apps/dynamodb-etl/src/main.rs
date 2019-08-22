@@ -19,10 +19,8 @@ use crate::json_queries::*;
 
 quick_main!(run);
 
-#[cfg(test)]
-const DEFAULT_BIN_PATH: &str = ".projectBinaryData.B";
-#[cfg(test)]
-const DEFAULT_TEXT_PATH: &str = ".projectData.S";
+const DEFAULT_BIN_PATH: &'static str = ".projectBinaryData.B";
+const DEFAULT_TEXT_PATH: &'static str = ".projectData.S";
 
 /// Rewrites json replacing string field values with their json content
 ///
@@ -44,11 +42,11 @@ const DEFAULT_TEXT_PATH: &str = ".projectData.S";
 #[structopt(name = "dynamodb-etl", about = "", author = "")]
 struct Opt {
     /// Binary data path
-    #[structopt(short, long, default_value = ".projectBinaryData.B")]
+    #[structopt(short, long, raw(default_value = "DEFAULT_BIN_PATH"))]
     binpath: String,
 
     /// Text data path
-    #[structopt(short, long, default_value = ".projectData.S")]
+    #[structopt(short, long, raw(default_value = "DEFAULT_TEXT_PATH"))]
     textpath: String,
 }
 
