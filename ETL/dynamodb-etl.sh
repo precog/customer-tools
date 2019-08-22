@@ -126,6 +126,7 @@ if [[ -n $ALL ]]; then
 fi
 
 # Adjust total for number of workers; we can't predict which workers will get remainders
+REMAINDER=$((TOTAL % WORKERS))
 TOTAL=$((TOTAL / WORKERS))
 
 worker() {
@@ -137,6 +138,11 @@ worker() {
 	COUNT=0
 	NEXTTOKEN='null'
 	SECONDS=0
+
+	# Last worker gets total remainders
+	if [[ $1 -eq $((WORKERS - 1))  ]]; then
+		TOTAL=$((TOTAL + REMAINDER))
+	fi
 
 	# Adjust max items if greater than total
 	curbMaxItems

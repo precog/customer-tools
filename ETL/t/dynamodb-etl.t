@@ -187,6 +187,6 @@ EGREP "SEGMENTS(3)"
 EGREP "SEGMENT(0)"
 EGREP "SEGMENT(1)"
 EGREP "SEGMENT(2)"
-ODIFF <<< $'18'
+ODIFF <<< $'20'
 
 # vim: set ts=4 sw=4 sts=4 tw=100 noet filetype=sh :
