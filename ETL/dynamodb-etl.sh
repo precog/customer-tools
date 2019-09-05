@@ -124,9 +124,13 @@ QUERY
 : "${WORKERS:=1}"
 
 # If Bash 5
-if ( : "$EPOCHSECONDS" ) 2> /dev/null; then
+if ( : "$EPOCHREALTIME" ) 2> /dev/null; then
 	timestamp() {
-		echo "$EPOCHSECONDS"
+		echo "$EPOCHREALTIME"
+	}
+elif [[ "$(date +%N)" =~ [0-9]+ ]]; then
+	timestamp() {
+		date +%s.%N
 	}
 else
 	timestamp() {
