@@ -128,13 +128,22 @@ if ( : "$EPOCHREALTIME" ) 2> /dev/null; then
 	timestamp() {
 		echo "$EPOCHREALTIME"
 	}
+	since() {
+		bc -l <<<"$EPOCHREALTIME - $1"
+	}
 elif [[ "$(date +%N)" =~ [0-9]+ ]]; then
 	timestamp() {
 		date +%s.%N
 	}
+	since() {
+		bc -l <<<"$(timestamp) - $1"
+	}
 else
 	timestamp() {
 		date +%s
+	}
+	since() {
+		echo $(($(timestamp) - $1))
 	}
 fi
 
@@ -208,8 +217,9 @@ worker() {
 }
 
 scan() {
-	local t1=$SECONDS
-	[[ -n $PROFILING ]] && echo -n >&5 "$(timestamp)," || :
+	local t1
+	t1=$(timestamp)
+	profiling -n "$(timestamp),"
 	if [[ $# -eq 1 ]]; then
 		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
 			"${SEGMENTATION[@]}" --starting-token "$1" \
@@ -219,52 +229,49 @@ scan() {
 			"${SEGMENTATION[@]}" \
 			"${PROFILING_SCAN[@]}"
 	fi
-	[[ -n $PROFILING ]] && echo -n >&5 "$((SECONDS - t1))," || :
+	profiling -n "$(since "$t1"),"
 }
 
 readData() {
 	local BYTES KBYTES t1 t2
-	t1=$SECONDS
+	t1=$(timestamp)
 	DATA=$(scan)
-	t2=$SECONDS
+	t2=$(timestamp)
 	BYTES=${#DATA}
 	KBYTES=$(((BYTES + 512) / 1024))
 	NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
 	ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
 	COUNT=$ITEMS_READ
-	if [[ -n $PROFILING ]]; then
-		echo -n >&5 "$((SECONDS - t2)),$BYTES,$KBYTES,$COUNT,$(
-			jq -rc '[.ConsumedCapacity.CapacityUnits,.ScannedCount]|map(tostring)|join(",")' <<<"$DATA"
-		),"
-	fi
+	profiling -n "$(since "$t2"),$BYTES,$KBYTES,$COUNT,$(
+		jq -rc '[.ConsumedCapacity.CapacityUnits,.ScannedCount]|map(tostring)|join(",")' <<<"$DATA"
+	),"
 	jq -r -c '.Items[]' <<<"$DATA" | processData
 	showCount
 
 	while [[ ${NEXTTOKEN} != 'null' && (${TOTAL} -gt ${COUNT}) ]]; do
-		[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t1))" || :
-		t1=$SECONDS
+		profiling "$(since "$t1")"
+		t1=$(timestamp)
 		curbMaxItems
 		DATA=$(scan "${NEXTTOKEN}")
-		t2=$SECONDS
+		t2=$(timestamp)
 		BYTES=${#DATA}
 		KBYTES=$(((BYTES + 512) / 1024 + KBYTES))
 		NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
 		ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
 		COUNT=$((COUNT + ITEMS_READ))
-		if [[ -n $PROFILING ]]; then
-			echo -n >&5 "$((SECONDS - t2)),$BYTES,$KBYTES,$COUNT,$(
-				jq -rc '[.ConsumedCapacity.CapacityUnits,.ScannedCount]|map(tostring)|join(",")' <<<"$DATA"
-			),"
-		fi
+		profiling -n "$(since "$t2"),$BYTES,$KBYTES,$COUNT,$(
+			jq -rc '[.ConsumedCapacity.CapacityUnits,.ScannedCount]|map(tostring)|join(",")' <<<"$DATA"
+		),"
 		jq -r -c '.Items[]' <<<"$DATA" | processData
 		showCount
 		showEllapsed
 	done
-	[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t1))" || :
+	profiling "$(since "$t1")"
 }
 
 processData() {
-	local t1=$SECONDS t2
+	local t1 t2
+	t1=$(timestamp)
 	TMP="$(getTMP)"
 	while read -r line; do
 		jq -r -c "${BINARY_DEFAULT_QUERY}" <<< "$line" | base64 --decode | gzip -d |
@@ -273,10 +280,10 @@ processData() {
 				cat >&2 <<<"$line"
 			}
 	done > "$TMP"
-	[[ -n $PROFILING ]] && echo -n >&5 "$(filesize "${TMP}"),$((SECONDS - t1))," || :
-	t2=$SECONDS
+	profiling -n "$(filesize "${TMP}"),$(since "$t1")," || :
+	t2=$(timestamp)
 	echo "$TMP"
-	[[ -n $PROFILING ]] && echo -n >&5 "$((SECONDS-t2))," || :
+	profiling -n "$(since "$t2"),"
 }
 
 curbMaxItems() {
@@ -328,7 +335,13 @@ getPipe() {
 }
 
 getTMP() {
-  mktemp -t "dynamodb-etl.XXXXXXXXXX"
+	mktemp -t "dynamodb-etl.XXXXXXXXXX"
+}
+
+profiling() {
+	if [[ -n $PROFILING ]]; then
+		echo >&5 "$@"
+	fi
 }
 
 declare -a PIPE_NAME
@@ -351,18 +364,18 @@ if [[ -n $PROFILING ]]; then
 	echo >&5 "timestamp,wait,worker,send"
 fi
 
-t0=$SECONDS
-[[ -n $PROFILING ]] && echo -n >&5 "$(timestamp)," || :
+t0=$(timestamp)
+profiling -n "$(timestamp),"
 while [[ ${#PIPE_FD[@]} -gt 0 ]]; do
 	for index in "${!PIPE_FD[@]}"; do
 		if read -r -t 1 -u "${PIPE_FD[$index]}" file; then
-			[[ -n $PROFILING ]] && echo -n >&5 "$((SECONDS - t0)),$index," || :
-			t0=$SECONDS
+			profiling -n "$(since "$t0"),$index,"
+			t0=$(timestamp)
 			cat "${WORKER_PARTIAL[$index]:-}$file"
 			unset WORKER_PARTIAL["$index"]
-			[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t0))" || :
-			t0=$SECONDS
-			[[ -n $PROFILING ]] && echo -n >&5 "$(timestamp)," || :
+			profiling "$(since "$t0")"
+			t0=$(timestamp)
+			profiling -n "$(timestamp),"
 			rm "$file"
 		elif [[ $? -lt 128 ]]; then
 			unset "PIPE_FD[$index]"
@@ -380,6 +393,6 @@ for pipe in "${PIPE_NAME[@]}"; do
 	rm "$pipe"
 done
 
-[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t0)),end," || :
+profiling "$(since "$t0"),end,"
 
 # vim: set ts=4 sw=4 tw=100 noet :
