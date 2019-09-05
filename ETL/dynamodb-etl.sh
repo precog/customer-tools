@@ -205,7 +205,7 @@ worker() {
 
 scan() {
 	local t1=$SECONDS
-	[[ -n $PROFILING ]] && echo -n >&5 "$(timestamp),"
+	[[ -n $PROFILING ]] && echo -n >&5 "$(timestamp)," || :
 	if [[ $# -eq 1 ]]; then
 		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
 			"${SEGMENTATION[@]}" --starting-token "$1" \
@@ -215,7 +215,7 @@ scan() {
 			"${SEGMENTATION[@]}" \
 			"${PROFILING_SCAN[@]}"
 	fi
-	[[ -n $PROFILING ]] && echo -n >&5 "$((SECONDS - t1)),"
+	[[ -n $PROFILING ]] && echo -n >&5 "$((SECONDS - t1))," || :
 }
 
 readData() {
@@ -237,7 +237,7 @@ readData() {
 	showCount
 
 	while [[ ${NEXTTOKEN} != 'null' && (${TOTAL} -gt ${COUNT}) ]]; do
-		[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t1))"
+		[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t1))" || :
 		t1=$SECONDS
 		curbMaxItems
 		DATA=$(scan "${NEXTTOKEN}")
@@ -256,7 +256,7 @@ readData() {
 		showCount
 		showEllapsed
 	done
-	[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t1))"
+	[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t1))" || :
 }
 
 processData() {
@@ -269,10 +269,10 @@ processData() {
 				cat >&2 <<<"$line"
 			}
 	done > "$TMP"
-	[[ -n $PROFILING ]] && echo -n >&5 "$(filesize "${TMP}"),$((SECONDS - t1)),"
+	[[ -n $PROFILING ]] && echo -n >&5 "$(filesize "${TMP}"),$((SECONDS - t1))," || :
 	t2=$SECONDS
 	echo "$TMP"
-	[[ -n $PROFILING ]] && echo -n >&5 "$((SECONDS-t2)),"
+	[[ -n $PROFILING ]] && echo -n >&5 "$((SECONDS-t2))," || :
 }
 
 curbMaxItems() {
@@ -329,6 +329,7 @@ getTMP() {
 
 declare -a PIPE_NAME
 declare -a PIPE_FD
+declare -a WORKER_PARTIAL
 
 trap 'kill $(jobs -p)' EXIT
 
@@ -347,19 +348,22 @@ if [[ -n $PROFILING ]]; then
 fi
 
 t0=$SECONDS
-[[ -n $PROFILING ]] && echo -n >&5 "$(timestamp),"
+[[ -n $PROFILING ]] && echo -n >&5 "$(timestamp)," || :
 while [[ ${#PIPE_FD[@]} -gt 0 ]]; do
 	for index in "${!PIPE_FD[@]}"; do
 		if read -r -t 1 -u "${PIPE_FD[$index]}" file; then
-			[[ -n $PROFILING ]] && echo -n >&5 "$((SECONDS - t0)),$index,"
+			[[ -n $PROFILING ]] && echo -n >&5 "$((SECONDS - t0)),$index," || :
 			t0=$SECONDS
-			cat "$file"
-			[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t0))"
+			cat "${WORKER_PARTIAL[$index]:-}$file"
+			unset WORKER_PARTIAL["$index"]
+			[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t0))" || :
 			t0=$SECONDS
-			[[ -n $PROFILING ]] && echo -n >&5 "$(timestamp),"
+			[[ -n $PROFILING ]] && echo -n >&5 "$(timestamp)," || :
 			rm "$file"
 		elif [[ $? -lt 128 ]]; then
 			unset "PIPE_FD[$index]"
+		else
+			WORKER_PARTIAL[$index]="${WORKER_PARTIAL[$index]:-}${file}"
 		fi
 	done
 done
@@ -372,6 +376,6 @@ for pipe in "${PIPE_NAME[@]}"; do
 	rm "$pipe"
 done
 
-[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t0)),end,"
+[[ -n $PROFILING ]] && echo >&5 "$((SECONDS - t0)),end," || :
 
 # vim: set ts=4 sw=4 tw=100 noet :
