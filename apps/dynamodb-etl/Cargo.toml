@@ -16,7 +16,7 @@ structopt = "0.2.18"
 # Requires environment variables JQ_LIB_DIR and ONIG_LIB_DIR
 # To statically link those libraries, JQ_LIB_STATIC and ONIG_LIB_STATIC
 [target.'cfg(not(target_os = "linux"))'.dependencies]
-jq-rs = { version = "0.4.0" }
+jq-rs = { version = "0.4.1" }
 
 # Define JQ_NO_STATIC to dynamically link jq
 [target.'cfg(target_os = "linux")'.dependencies]
