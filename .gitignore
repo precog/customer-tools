@@ -1,6 +1,9 @@
 # Exclude files I use for manual testing
-ETL/*.json
-ETL/xa?
+ETL/samples/
+
+# Exclude profiling files
+*.profiling
+*.profiling.gz
 
 # Created by .ignore support plugin (hsz.mobi)
 ### Windows template

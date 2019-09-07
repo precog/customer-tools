@@ -80,6 +80,9 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 		shift
 		READ_FROM="${1}"
 		;;
+	--profiling)
+		PROFILING=1
+		;;
 	*)
 		echo >&2 "Invalid parameter '$1'"$'\n'
 		usage
@@ -117,12 +120,55 @@ QUERY
 : "${READ_FROM:=}"
 : "${TABLE:=projects}"
 : "${TOTAL:=100}"
+: "${PROFILING:=}"
 : "${WORKERS:=1}"
+
+# If Bash 5
+if ( : "$EPOCHREALTIME" ) 2> /dev/null; then
+	timestamp() {
+		echo "$EPOCHREALTIME"
+	}
+	since() {
+		bc -l <<<"$EPOCHREALTIME - $1"
+	}
+elif [[ "$(date +%N)" =~ [0-9]+ ]]; then
+	timestamp() {
+		date +%s.%N
+	}
+	since() {
+		bc -l <<<"$(timestamp) - $1"
+	}
+else
+	timestamp() {
+		date +%s
+	}
+	since() {
+		echo $(($(timestamp) - $1))
+	}
+fi
+
+# If BSD
+if ( stat -f "%z" "${BASH_SOURCE[0]}" > /dev/null 2>&1 ); then
+	filesize() {
+		stat -f "%z" "$1"
+    }
+else
+	filesize() {
+		stat -c "%s" "$1"
+	}
+fi
 
 # Fetch total if using --all
 if [[ -n $ALL ]]; then
 	TOTAL="$(aws dynamodb describe-table --table-name "${TABLE}" | jq .Table.ItemCount)"
 	[[ -n $QUIET ]] || echo >&2 "Total ${TOTAL}"
+fi
+
+# Extra scan flags on verbose
+if [[ -n $PROFILING ]]; then
+	PROFILING_SCAN=( '--return-consumed-capacity' 'TOTAL' )
+else
+	PROFILING_SCAN=( )
 fi
 
 # Adjust total for number of workers; we can't predict which workers will get remainders
@@ -139,6 +185,11 @@ worker() {
 	NEXTTOKEN='null'
 	SECONDS=0
 
+	if [[ -n $PROFILING ]]; then
+		exec 5> "worker$1.profiling"
+		echo >&5 "epochseconds,scan,math,size,tsize,count,consumed,scanned,osize,decode,pipe,loop"
+	fi
+
 	# Last worker gets total remainders
 	if [[ $1 -eq $((WORKERS - 1))  ]]; then
 		TOTAL=$((TOTAL + REMAINDER))
@@ -148,7 +199,7 @@ worker() {
 	curbMaxItems
 
 	if [[ $WORKERS -eq 1 ]]; then
-		SEGMENTATION=()
+		SEGMENTATION=( )
 		WORKER_INFO=""
 	else
 		SEGMENTATION=('--segment' "$1" '--total-segments' "$WORKERS")
@@ -166,36 +217,61 @@ worker() {
 }
 
 scan() {
+	local t1
+	t1=$(timestamp)
+	profiling -n "$(timestamp),"
 	if [[ $# -eq 1 ]]; then
 		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
-			"${SEGMENTATION[@]}" --starting-token "$1"
+			"${SEGMENTATION[@]}" --starting-token "$1" \
+			"${PROFILING_SCAN[@]}"
 	else
 		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
-			"${SEGMENTATION[@]}"
+			"${SEGMENTATION[@]}" \
+			"${PROFILING_SCAN[@]}"
 	fi
+	profiling -n "$(since "$t1"),"
 }
 
 readData() {
+	local BYTES KBYTES t1 t2
+	t1=$(timestamp)
 	DATA=$(scan)
-	jq -r -c '.Items[]' <<<"$DATA" | processData
+	t2=$(timestamp)
+	BYTES=${#DATA}
+	KBYTES=$(((BYTES + 512) / 1024))
 	NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
 	ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
 	COUNT=$ITEMS_READ
+	profiling -n "$(since "$t2"),$BYTES,$KBYTES,$COUNT,$(
+		jq -rc '[.ConsumedCapacity.CapacityUnits,.ScannedCount]|map(tostring)|join(",")' <<<"$DATA"
+	),"
+	jq -r -c '.Items[]' <<<"$DATA" | processData
 	showCount
 
 	while [[ ${NEXTTOKEN} != 'null' && (${TOTAL} -gt ${COUNT}) ]]; do
+		profiling "$(since "$t1")"
+		t1=$(timestamp)
 		curbMaxItems
 		DATA=$(scan "${NEXTTOKEN}")
-		jq -r -c '.Items[]' <<<"$DATA" | processData
+		t2=$(timestamp)
+		BYTES=${#DATA}
+		KBYTES=$(((BYTES + 512) / 1024 + KBYTES))
 		NEXTTOKEN=$(jq -r '.NextToken' <<<"$DATA")
 		ITEMS_READ=$(jq -r -c '.Items|length' <<<"$DATA")
 		COUNT=$((COUNT + ITEMS_READ))
+		profiling -n "$(since "$t2"),$BYTES,$KBYTES,$COUNT,$(
+			jq -rc '[.ConsumedCapacity.CapacityUnits,.ScannedCount]|map(tostring)|join(",")' <<<"$DATA"
+		),"
+		jq -r -c '.Items[]' <<<"$DATA" | processData
 		showCount
 		showEllapsed
 	done
+	profiling "$(since "$t1")"
 }
 
 processData() {
+	local t1 t2
+	t1=$(timestamp)
 	TMP="$(getTMP)"
 	while read -r line; do
 		jq -r -c "${BINARY_DEFAULT_QUERY}" <<< "$line" | base64 --decode | gzip -d |
@@ -204,7 +280,10 @@ processData() {
 				cat >&2 <<<"$line"
 			}
 	done > "$TMP"
+	profiling -n "$(filesize "${TMP}"),$(since "$t1")," || :
+	t2=$(timestamp)
 	echo "$TMP"
+	profiling -n "$(since "$t2"),"
 }
 
 curbMaxItems() {
@@ -256,16 +335,23 @@ getPipe() {
 }
 
 getTMP() {
-  mktemp -t "dynamodb-etl.XXXXXXXXXX"
+	mktemp -t "dynamodb-etl.XXXXXXXXXX"
+}
+
+profiling() {
+	if [[ -n $PROFILING ]]; then
+		echo >&5 "$@"
+	fi
 }
 
 declare -a PIPE_NAME
 declare -a PIPE_FD
+declare -a WORKER_PARTIAL
 
 trap 'kill $(jobs -p)' EXIT
 
-for worker in $(seq 1 ${WORKERS}); do
-	segment=$((worker - 1))
+for worker in $(seq 0 $((WORKERS - 1))); do
+	segment="$worker"
 	PIPE="$(getPipe "$worker")"
 	PIPE_NAME[$worker]="$PIPE"
 	worker "${segment}" > "$PIPE" &
@@ -273,13 +359,28 @@ for worker in $(seq 1 ${WORKERS}); do
 	PIPE_FD["${worker}"]="${FD}"
 done
 
+if [[ -n $PROFILING ]]; then
+	exec 5> main.profiling
+	echo >&5 "timestamp,wait,worker,send"
+fi
+
+t0=$(timestamp)
+profiling -n "$(timestamp),"
 while [[ ${#PIPE_FD[@]} -gt 0 ]]; do
 	for index in "${!PIPE_FD[@]}"; do
 		if read -r -t 1 -u "${PIPE_FD[$index]}" file; then
-			cat "$file"
+			profiling -n "$(since "$t0"),$index,"
+			t0=$(timestamp)
+			cat "${WORKER_PARTIAL[$index]:-}$file"
+			unset WORKER_PARTIAL["$index"]
+			profiling "$(since "$t0")"
+			t0=$(timestamp)
+			profiling -n "$(timestamp),"
 			rm "$file"
 		elif [[ $? -lt 128 ]]; then
 			unset "PIPE_FD[$index]"
+		else
+			WORKER_PARTIAL[$index]="${WORKER_PARTIAL[$index]:-}${file}"
 		fi
 	done
 done
@@ -291,5 +392,7 @@ trap - EXIT
 for pipe in "${PIPE_NAME[@]}"; do
 	rm "$pipe"
 done
+
+profiling "$(since "$t0"),end,"
 
 # vim: set ts=4 sw=4 tw=100 noet :
