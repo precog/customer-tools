@@ -3,46 +3,11 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# Find ourselves and script to be tested
-TEST_NAME="$(basename "$0" .t)"
-TEST_DIR="$(dirname "$0")"
-SCRIPT_NAME="${TEST_NAME}.sh"
-SCRIPT_DIR="$(cd "${TEST_DIR}/.." && pwd)"
-SCRIPT="${SCRIPT_DIR}/${SCRIPT_NAME}"
+# Helper functions and test environment setup
+# shellcheck source=ETL/t/helper.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helper.sh"
 
-# Validate environment
-[[ ! -d "${TEST_DIR}" ]] ||
-	[[ ! -d "${SCRIPT_DIR}" ]] ||
-	[[ ! -f "${TEST_DIR}/osht.sh" ]] ||
-	[[ ! ( -f "${SCRIPT}" || -x "${SCRIPT}" ) ]] &&
-	exit 1
-
-# Clean up on exit
-unset TMP
-cleanUp() {
-	[[ -d "${TMP}" ]]  && rm -fr "${TMP}"
-}
-trap cleanUp EXIT
-
-# Set temporary directory and fake aws cli
-TMP=$(mktemp -d -t "${TEST_NAME}.XXXXXXXXXX")
-BIN="${TMP}/bin"
-DATA="${TMP}/data"
-mkdir -p "${BIN}" "${DATA}"
-cat > "${BIN}/aws" <<-AWS
-	#!/usr/bin/env bash
-	exec ${BIN}/aws.sh "${DATA}" "\${@}"
-AWS
-cp "${TEST_DIR}/aws.sh" "${BIN}/"
-chmod +x "${BIN}/aws" "${BIN}/aws.sh"
-cat > "${BIN}/countLines.sh" <<-COUNTLINES
-	#!/usr/bin/env bash
-	"${SCRIPT}" "\$@" | tee >(cat >&2) | wc -l | tr -d ' '
-COUNTLINES
-chmod +x "${BIN}/countLines.sh"
-export PATH="${BIN}:${PATH}"
-
-# Load test framework
+# Test framework
 unset IFS # osht depends on default IFS
 # shellcheck disable=SC1094 disable=SC1090
 source "$(dirname "$0")/osht.sh"
@@ -50,26 +15,8 @@ source "$(dirname "$0")/osht.sh"
 # Tests run unlinted
 set +euo pipefail
 
-# Test helpers
-clearData() {
-	[[ -d "${DATA}" ]] && rm -fr "${DATA}"
-	mkdir -p "${DATA}"
-}
-
-addData() {
-	mapfile -t < <(cd "${DATA}" && ls)
-	if [[ "${#MAPFILE[@]}" -eq 0 ]]; then
-		FILE="00.json"
-	else
-		LAST="${MAPFILE[-1]%.json}"
-		[[ "${LAST}" == +([0-9]) ]] || { echo >&2 "Invalid data file: '${LAST}'"; return 1; }
-		FILE=$(printf "%02d.json" $((10#$LAST + 1)))
-	fi
-	cat > "${DATA}/${FILE}"
-}
-
 # Tests
-PLAN 56
+PLAN 69
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -177,8 +124,8 @@ EDIFF <<-ALL_QUIET
 	MAX_ITEMS(25)
 	SCAN
 	TABLE(projects)
+	MAX_ITEMS(25)
 	STARTING_TOKEN(25)
-	MAX_ITEMS(15)
 ALL_QUIET
 
 # Basic parameters
@@ -207,7 +154,7 @@ ODIFF <<< $'10'
 # Test --all
 RUNS countLines.sh --all --total 10  # reads all data despite total
 ODIFF <<< $'40'  # fetches all content
-RUNS "${SCRIPT}" --all --total 10 --no-timer  # shows how many records are going to be fetched
+RUNS "${SCRIPT}" --all --total 10 ---no-timer  # shows how many records are going to be fetched
 EDIFF <<-ALL_OUTPUT
 	DESCRIBE_TABLE
 	TABLE(projects)
@@ -218,17 +165,28 @@ EDIFF <<-ALL_OUTPUT
 	25 (62%)
 	SCAN
 	TABLE(projects)
+	MAX_ITEMS(25)
 	STARTING_TOKEN(25)
-	MAX_ITEMS(15)
 	40 (100%)
 ALL_OUTPUT
 
-# Test survives bad binary data
-TODO OK false  # survive bad binary data
+# Test two parallel workers
+RUNS "${SCRIPT}" --total 20 --max-items 5 --workers 2  # two parallel workers
+EGREP "SEGMENTS(2)"
+EGREP "SEGMENT(0)"
+EGREP "SEGMENT(1)"
+NEGREP "SEGMENT(2)"
+EGREP "Worker #0: 5"
+EGREP "Worker #1: 5"
+EGREP "Worker #0: 10"
+EGREP "Worker #1: 10"
 
-# Test survives bad string data
-TODO OK false  # survive bad string data
+# Test three parallel workers
+RUNS countLines.sh --total 20 --max-items 5 --workers 3  # three parallel workers
+EGREP "SEGMENTS(3)"
+EGREP "SEGMENT(0)"
+EGREP "SEGMENT(1)"
+EGREP "SEGMENT(2)"
+ODIFF <<< $'20'
 
-
-# vim: set ts=4 sw=4 tw=100 noet filetype=sh :
-
+# vim: set ts=4 sw=4 sts=4 tw=100 noet filetype=sh :
