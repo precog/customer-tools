@@ -16,7 +16,7 @@ source "$(dirname "$0")/osht.sh"
 set +euo pipefail
 
 # Tests
-PLAN 77
+PLAN 83
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -119,7 +119,16 @@ addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 RUNS "${SCRIPT}"  # does not add text path if not present on input
 NOGREP 'projectBinaryData'
 
-# TODO: specify paths as parameters
+# Specify paths as parameters
+addData <<< '{"text": "{\"a\": \"b\"}"}'
+RUNS "${SCRIPT}" .binary .text .merged  # paths as parameters, text input
+NOGREP '"text"'
+OGREP '"merged":{"a":"b"}'
+
+addData <<< '{"binary": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
+RUNS "${SCRIPT}" .binary .text .merged  # paths as parameters, binary input
+NOGREP '"binary"'
+OGREP '"merged":{"a":"b"}'
 
 # Handles data over 400 KB in length
 clearData
