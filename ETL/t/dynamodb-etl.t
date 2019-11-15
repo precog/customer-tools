@@ -54,7 +54,7 @@ EGREP -i 'invalid parameter.*--mistaken-parameter'
 clearData
 addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 RUNS "${SCRIPT}"  # converts text data into json
-NOGREP 'projectData:{}'
+OGREP '"projectData":{}'
 OGREP '"mergedProjectData":{"a":"b"}'
 
 # Survives bad string data
@@ -103,8 +103,8 @@ addData <<-BOTH_FIELDS
 	}
 BOTH_FIELDS
 RUNS "${SCRIPT}"  # Discard text data if binary data is present
-NOGREP 'projectData:{}'
-NOGREP 'projectBinaryData:{}'
+OGREP '"projectData":{}'
+OGREP '"projectBinaryData":{}'
 OGREP '"mergedProjectData":{"a":"b"}'
 
 # Do not add string path unless present on input
