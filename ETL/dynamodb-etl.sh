@@ -21,7 +21,7 @@ fi
 
 usage() {
 	cat >&2 <<-USAGE
-		Usage: $0 [-?|-h|--help] [<binary_path> <string_path>]
+		Usage: $0 [-?|-h|--help] [<binary_path> <string_path> <merged_path]
 
 		-? | -h | --help             Prints this message
 		-a | --all                   Process all data (overrides total)
@@ -91,25 +91,33 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 	shift
 done
 
-if [[ $# -ne 0 && $# -ne 2 ]]; then
-	echo >&2 "Either both paths or no paths must be passed!"
+if [[ $# -ne 0 && $# -ne 3 ]]; then
+	echo >&2 "Either all paths or no paths must be passed!"
 	exit 2
 fi
 
 BINARY_PATH="${1:-.projectBinaryData.B}"
 STRING_PATH="${2:-.projectData.S}"
+MERGED_PATH="${3:-.mergedProjectData}"
 BINARY_DEFAULT_QUERY="${BINARY_PATH}"' // "H4sIABWa/lwCA6uu5QIABrCh3QMAAAA="'
 STRING_DEFAULT_QUERY="${STRING_PATH}"' // "{}"'
 BINARY_JQ_PATH="$(jq -n -c "path($BINARY_PATH)")"
 STRING_JQ_PATH="$(jq -n -c "path($STRING_PATH)")"
+MERGED_JQ_PATH="$(jq -n -c "path($MERGED_PATH)")"
 # False positive on -d 'EOL':
 # shellcheck disable=SC2034
 read -r -d 'EOL' OUTPUT_QUERY <<-QUERY
 	. as \$uncompressed
 	| (\$line | ${STRING_DEFAULT_QUERY} | fromjson) as \$literal
 	| \$line
-	| if getpath(${BINARY_JQ_PATH}) then setpath(${BINARY_JQ_PATH}; \$uncompressed) else . end
-	| if getpath(${STRING_JQ_PATH}) then setpath(${STRING_JQ_PATH}; \$literal) else . end
+	| setpath(${MERGED_JQ_PATH};
+	    if getpath(${BINARY_JQ_PATH}) then \$uncompressed
+		else if getpath(${STRING_JQ_PATH}) then \$literal
+		else null end
+        end
+	  )
+    | del(${BINARY_PATH})
+	| del(${STRING_PATH})
 	EOL
 QUERY
 
