@@ -111,12 +111,12 @@ read -r -d 'EOL' OUTPUT_QUERY <<-QUERY
 	| (\$line | ${STRING_DEFAULT_QUERY} | fromjson) as \$literal
 	| \$line
 	| setpath(${MERGED_JQ_PATH};
-	    if getpath(${BINARY_JQ_PATH}) then \$uncompressed
+		if getpath(${BINARY_JQ_PATH}) then \$uncompressed
 		else if getpath(${STRING_JQ_PATH}) then \$literal
 		else null end
-        end
+		end
 	  )
-    | del(${BINARY_PATH})
+	| del(${BINARY_PATH})
 	| del(${STRING_PATH})
 	EOL
 QUERY
@@ -403,4 +403,4 @@ done
 
 profiling "$(since "$t0"),end,"
 
-# vim: set ts=4 sw=4 tw=100 noet :
+# vim: set sts=4 ts=4 sw=4 tw=100 noet :
