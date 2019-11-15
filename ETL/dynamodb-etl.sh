@@ -21,7 +21,7 @@ fi
 
 usage() {
 	cat >&2 <<-USAGE
-		Usage: $0 [-?|-h|--help] [<binary_path> <string_path> <merged_path]
+		Usage: $0 [-?|-h|--help] [<binary_path> <string_path> <merged_path>]
 
 		-? | -h | --help             Prints this message
 		-a | --all                   Process all data (overrides total)
