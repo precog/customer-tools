@@ -16,7 +16,7 @@ source "$(dirname "$0")/osht.sh"
 set +euo pipefail
 
 # Tests
-PLAN 69
+PLAN 83
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -40,6 +40,12 @@ RUNS "${SCRIPT}" -t 5  # does not fail on empty input
 NOGREP .
 EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(5)\n0'
 
+# No text or binary data in input
+clearData
+addData <<< '{"neither":"exists"}'
+RUNS "${SCRIPT}"  # no text or binary data
+OGREP '"mergedProjectData":null'
+
 # Invalid parameters
 NRUNS "${SCRIPT}" --mistaken-parameter  # Invalid parameter
 EGREP -i 'invalid parameter.*--mistaken-parameter'
@@ -48,7 +54,8 @@ EGREP -i 'invalid parameter.*--mistaken-parameter'
 clearData
 addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 RUNS "${SCRIPT}"  # converts text data into json
-OGREP '"projectData":{"S":{"a":"b"}}'
+OGREP '"projectData":{}'
+OGREP '"mergedProjectData":{"a":"b"}'
 
 # Survives bad string data
 clearData
@@ -66,7 +73,8 @@ ODIFF <<< $'2'
 clearData
 addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
 RUNS "${SCRIPT}"  # converts binary data into json
-OGREP '"projectBinaryData":{"B":{"a":"b"}}'
+OGREP '"projectBinaryData":{}'
+OGREP '"mergedProjectData":{"a":"b"}'
 
 # Survives bad binary data
 clearData
@@ -86,6 +94,19 @@ EGREP "$(jq -c . <<<"${BAD3}")"
 RUNS countLines.sh  # good records still read
 ODIFF <<< $'2'
 
+# Discard text data if binary data is present
+clearData
+addData <<-BOTH_FIELDS
+	{
+		"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="},
+		"projectData": {"S": "{\"c\": \"d\"}"}
+	}
+BOTH_FIELDS
+RUNS "${SCRIPT}"  # Discard text data if binary data is present
+OGREP '"projectData":{}'
+OGREP '"projectBinaryData":{}'
+OGREP '"mergedProjectData":{"a":"b"}'
+
 # Do not add string path unless present on input
 clearData
 addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
@@ -97,6 +118,17 @@ clearData
 addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 RUNS "${SCRIPT}"  # does not add text path if not present on input
 NOGREP 'projectBinaryData'
+
+# Specify paths as parameters
+addData <<< '{"text": "{\"a\": \"b\"}"}'
+RUNS "${SCRIPT}" .binary .text .merged  # paths as parameters, text input
+NOGREP '"text"'
+OGREP '"merged":{"a":"b"}'
+
+addData <<< '{"binary": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
+RUNS "${SCRIPT}" .binary .text .merged  # paths as parameters, binary input
+NOGREP '"binary"'
+OGREP '"merged":{"a":"b"}'
 
 # Handles data over 400 KB in length
 clearData
