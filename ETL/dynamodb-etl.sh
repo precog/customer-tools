@@ -231,11 +231,11 @@ scan() {
 	if [[ $# -eq 1 ]]; then
 		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
 			"${SEGMENTATION[@]}" --starting-token "$1" \
-			"${PROFILING_SCAN[@]}"
+			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"}
 	else
 		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
 			"${SEGMENTATION[@]}" \
-			"${PROFILING_SCAN[@]}"
+			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"}
 	fi
 	profiling -n "$(since "$t1"),"
 }

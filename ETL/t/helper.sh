@@ -3,6 +3,16 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+type mapfile >/dev/null 2>&1 || {
+	mapfile() {
+		local line
+		MAPFILE=( )
+		while IFS= read -r line; do
+			MAPFILE+=("$line")
+		done
+	}
+}
+
 # Test helper functions
 
 clearData() {
@@ -15,8 +25,8 @@ addData() {
 	if [[ "${#MAPFILE[@]}" -eq 0 ]]; then
 		FILE="00.json"
 	else
-		LAST="${MAPFILE[-1]%.json}"
-		[[ "${LAST}" == +([0-9]) ]] || { echo >&2 "Invalid data file: '${LAST}'"; return 1; }
+		LAST="${MAPFILE[$((${#MAPFILE[@]}-1))]%.json}"
+		[[ "${LAST}" =~ ([0-9]) ]] || { echo >&2 "Invalid data file: '${LAST}'"; return 1; }
 		FILE=$(printf "%02d.json" $((10#$LAST + 1)))
 	fi
 	cat > "${DATA}/${FILE}"
@@ -69,3 +79,4 @@ COUNTLINES
 chmod +x "${BIN}/countLines.sh"
 export PATH="${BIN}:${PATH}"
 
+# vim: set ts=2 sts=2 sw=2 tw=100 noet :
