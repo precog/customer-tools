@@ -281,6 +281,10 @@ processData() {
 	local t1 t2
 	t1=$(timestamp)
 	TMP="$(getTMP)"
+	if [[ $TMP != /* ]]; then
+		echo >&2 "Temporary file not on absolute path: ${TMP}"
+		exit 5
+	fi
 	while read -r line; do
 		jq -r -c "${BINARY_DEFAULT_QUERY}" <<< "$line" | base64 --decode | gzip -d |
 			jq -r -c ". as \$line | input | ${OUTPUT_QUERY}" <(cat <<<"$line") <(cat) || {
@@ -379,7 +383,11 @@ while [[ ${#PIPE_FD[@]} -gt 0 ]]; do
 		if read -r -t 1 -u "${PIPE_FD[$index]}" file; then
 			profiling -n "$(since "$t0"),$index,"
 			t0=$(timestamp)
-			cat "${WORKER_PARTIAL[$index]:-}$file"
+			TMP_FILE="${WORKER_PARTIAL[$index]:-}$file"
+			if [[ $TMP_FILE != /* ]]; then
+				TMP_FILE="/${TMP_FILE}"
+			fi
+			cat "${TMP_FILE}"
 			unset WORKER_PARTIAL["$index"]
 			profiling "$(since "$t0")"
 			t0=$(timestamp)
