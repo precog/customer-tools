@@ -17,12 +17,23 @@ scan() {
 		--output json \
 		--table-name "$TABLE" \
 		--segment "$worker" --total-segments "$WORKERS" \
-		| gzip -9 \
-		| aws s3 cp - "s3://au-reform/${TABLE}/worker$worker.jzon.gz"
-	echo >&2 "Worker $worker finished"
+		| aws s3 cp - "s3://au-reform/${TABLE}/worker$worker.json.gz"
+	echo "Worker $worker finished"
 }
 
+trap 'kill $(jobs -p)' EXIT
+
+echo "Starting $WORKERS workers"
+date
+
 for worker in $(seq 0 $((WORKERS - 1))); do
-	scan "$worker" 2>"worker$worker.nohup.log" &
+	scan "$worker" &
 done
+
+echo "All workers started, waiting for them to finish"
+
+wait
+
+echo "All workers finished"
+date
 
