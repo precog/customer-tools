@@ -16,7 +16,7 @@ source "$(dirname "$0")/osht.sh"
 set +euo pipefail
 
 # Tests
-PLAN 83
+PLAN 86
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -135,6 +135,13 @@ clearData
 addData <<< "{\"key\": [$(seq -s , 1 100000)0]}"
 RUNS "${SCRIPT}"  # handles records bigger than 400 KB
 EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(25)\n1'
+
+# Do not process data if asked not to
+clearData
+addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
+RUNS "${SCRIPT}" --raw  # does not convert data
+OGREP '{"projectData":{"S":"{\\"a\\": \\"b\\"}"}}'
+NOGREP '"mergedProjectData":{"a":"b"}'
 
 # Setup for tests counting data
 clearData
