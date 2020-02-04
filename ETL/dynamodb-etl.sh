@@ -27,6 +27,7 @@ usage() {
 		-a | --all                   Process all data (overrides total)
 		-m N | --max-items N         Process data in batches of N (defaults to 25)
 		-q | --quiet                 Do not print progress information
+		-r | --raw                   Do not decode data
 		-t N | --total N             Limits processing to the first N entries (defaults to 100)
 		-T NAME | --table NAME       DynamoDB table name (defaults to "projects")
 		-w N | --workers N           Number of concurrent workers
@@ -67,6 +68,9 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 		;;
 	-q | --quiet)
 		QUIET=1
+		;;
+	-r | --raw)
+		RAW=1
 		;;
 	-w | --workers)
 		shift
@@ -125,6 +129,7 @@ QUERY
 : "${MAX_ITEMS:=25}"
 : "${NO_TIMER:=}"
 : "${QUIET:=}"
+: "${RAW:=}"
 : "${READ_FROM:=}"
 : "${TABLE:=projects}"
 : "${TOTAL:=100}"
@@ -230,11 +235,11 @@ scan() {
 	profiling -n "$(timestamp),"
 	if [[ $# -eq 1 ]]; then
 		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
-			"${SEGMENTATION[@]}" --starting-token "$1" \
+			${SEGMENTATION[@]+"${SEGMENTATION[@]}"} --starting-token "$1" \
 			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"}
 	else
 		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
-			"${SEGMENTATION[@]}" \
+			${SEGMENTATION[@]+"${SEGMENTATION[@]}"} \
 			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"}
 	fi
 	profiling -n "$(since "$t1"),"
@@ -286,11 +291,15 @@ processData() {
 		exit 5
 	fi
 	while read -r line; do
-		jq -r -c "${BINARY_DEFAULT_QUERY}" <<< "$line" | base64 --decode | gzip -d |
-			jq -r -c ". as \$line | input | ${OUTPUT_QUERY}" <(cat <<<"$line") <(cat) || {
-				echo >&2 'Invalid JSON!'
-				cat >&2 <<<"$line"
-			}
+		if [[ -z $RAW ]]; then
+			jq -r -c "${BINARY_DEFAULT_QUERY}" <<< "$line" | base64 --decode | gzip -d |
+				jq -r -c ". as \$line | input | ${OUTPUT_QUERY}" <(cat <<<"$line") <(cat) || {
+					echo >&2 'Invalid JSON!'
+					cat >&2 <<<"$line"
+				}
+		else
+			echo "$line"
+		fi
 	done > "$TMP"
 	profiling -n "$(filesize "${TMP}"),$(since "$t1")," || :
 	t2=$(timestamp)
