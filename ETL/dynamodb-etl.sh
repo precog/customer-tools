@@ -401,7 +401,7 @@ while [[ ${#PIPE_FD[@]} -gt 0 ]]; do
 			profiling "$(since "$t0")"
 			t0=$(timestamp)
 			profiling -n "$(timestamp),"
-			rm "$file"
+			rm "${TMP_FILE}"
 		elif [[ $? -lt 128 ]]; then
 			unset "PIPE_FD[$index]"
 		else
