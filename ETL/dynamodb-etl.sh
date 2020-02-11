@@ -246,11 +246,17 @@ main_stdout() {
 		echo >&5 "timestamp,wait,worker,send"
 	fi
 
+	if [[ $WORKERS -gt 1 ]]; then
+		OPT_TIMEOUT=("-t" "1")
+	else
+		OPT_TIMEOUT=( )
+	fi
+
 	t0=$(timestamp)
 	profiling -n "$(timestamp),"
 	while [[ ${#PIPE_FD[@]} -gt 0 ]]; do
 		for index in "${!PIPE_FD[@]}"; do
-			if read -r -t 1 -u "${PIPE_FD[$index]}" file; then
+			if read -r ${OPT_TIMEOUT[@]+"${OPT_TIMEOUT[@]}"} -u "${PIPE_FD[$index]}" file; then
 				profiling -n "$(since "$t0"),$index,"
 				t0=$(timestamp)
 				TMP_FILE="${WORKER_PARTIAL[$index]:-}$file"
