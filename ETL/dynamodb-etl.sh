@@ -26,8 +26,10 @@ usage() {
 		-? | -h | --help             Prints this message
 		-a | --all                   Process all data (overrides total)
 		-m N | --max-items N         Process data in batches of N (defaults to 25)
+		-o <file> | --output <file>  Send output to "file" (use %d to represent worker number)
 		-q | --quiet                 Do not print progress information
 		-r | --raw                   Do not decode data
+		-s | --stdout                Sends output to stdout (default)
 		-t N | --total N             Limits processing to the first N entries (defaults to 100)
 		-T NAME | --table NAME       DynamoDB table name (defaults to "projects")
 		-w N | --workers N           Number of concurrent workers
@@ -46,10 +48,18 @@ usage() {
 		example, ".no.binary.path .path.to.string" if there's string data
 		on the .path.to.string, but not binary data, and ".no.binary.path"
 		is not an existing path in the input data.
+
+		The output is sent to stdout by default. When running with multiple workers,
+		that process is coordinated to race issues on the output.
+
+		When sending output to a file, the file name is created by doing
+		"printf <file> <worker id>", with worker id numbering from 0 to the total
+		number of workers minus 1.
 	USAGE
 	exit 1
 }
 
+POSITIVE_INTEGER='^[1-9][0-9]*$'
 while [[ $# -gt 0 && $1 == -* ]]; do
 	case "$1" in
 	-\? | -h | --help) usage ;;
@@ -57,14 +67,30 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 	-m | --max-items)
 		shift
 		MAX_ITEMS="${1}"
+		if [[ ! "$MAX_ITEMS" =~ $POSITIVE_INTEGER ]]; then
+			echo >&2 "Max items must be a positive integer, got '$MAX_ITEMS'"$'\n'
+			usage
+		fi
 		;;
 	-t | --total)
 		shift
 		TOTAL="${1}"
+		if [[ ! "$TOTAL" =~ $POSITIVE_INTEGER ]]; then
+			echo >&2 "Total must be a positive integer, got '$TOTAL'"$'\n'
+			usage
+		fi
 		;;
 	-T | --table)
 		shift
 		TABLE="${1}"
+		;;
+	-o | --output)
+		shift
+		OUTPUT="${1}"
+		if [[ -z $OUTPUT ]]; then
+			echo >&2 $'Output file cannot be null\n'
+			usage
+		fi
 		;;
 	-q | --quiet)
 		QUIET=1
@@ -72,9 +98,16 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 	-r | --raw)
 		RAW=1
 		;;
+	-s | --stdout)
+		STDOUT=1
+		;;
 	-w | --workers)
 		shift
 		WORKERS="${1}"
+		if [[ ! "$WORKERS" =~ $POSITIVE_INTEGER ]]; then
+			echo >&2 "Workers must be a positive integer, got '$WORKERS'"$'\n'
+			usage
+		fi
 		;;
 	# These options are intentionally undocumented
 	---no-timer)
@@ -128,13 +161,32 @@ QUERY
 : "${ALL:=}"
 : "${MAX_ITEMS:=25}"
 : "${NO_TIMER:=}"
+: "${OUTPUT:=}"
 : "${QUIET:=}"
 : "${RAW:=}"
 : "${READ_FROM:=}"
+if [[ -z $OUTPUT ]]; then
+	: "${STDOUT:=1}"
+else
+	: "${STDOUT:=}"
+fi
 : "${TABLE:=projects}"
 : "${TOTAL:=100}"
 : "${PROFILING:=}"
 : "${WORKERS:=1}"
+
+if [[ -n $STDOUT && -n $OUTPUT ]]; then
+	echo >&2 "Parameters --stdout and --output are mutually exclusive"
+	exit 1
+fi
+
+if [[ $WORKERS -gt 1 && -n $STDOUT ]]; then
+	read -r -t 1 < <(echo -n "X"; sleep 2; echo "Y") || :
+	if [[ "${REPLY:-}" != "X" ]]; then
+		echo >&2 "Multiple workers unsupported for stdout in this bash version"
+		exit 6
+	fi
+fi
 
 # If Bash 5
 if ( : "$EPOCHREALTIME" ) 2> /dev/null; then
@@ -188,18 +240,54 @@ fi
 REMAINDER=$((TOTAL % WORKERS))
 TOTAL=$((TOTAL / WORKERS))
 
+main_stdout() {
+	if [[ -n $PROFILING ]]; then
+		exec 5> main.profiling
+		echo >&5 "timestamp,wait,worker,send"
+	fi
+
+	t0=$(timestamp)
+	profiling -n "$(timestamp),"
+	while [[ ${#PIPE_FD[@]} -gt 0 ]]; do
+		for index in "${!PIPE_FD[@]}"; do
+			if read -r -t 1 -u "${PIPE_FD[$index]}" file; then
+				profiling -n "$(since "$t0"),$index,"
+				t0=$(timestamp)
+				TMP_FILE="${WORKER_PARTIAL[$index]:-}$file"
+				if [[ $TMP_FILE != /* ]]; then
+					TMP_FILE="/${TMP_FILE}"
+				fi
+				cat "${TMP_FILE}"
+				unset WORKER_PARTIAL["$index"]
+				profiling "$(since "$t0")"
+				t0=$(timestamp)
+				profiling -n "$(timestamp),"
+				rm "${TMP_FILE}"
+			elif [[ $? -lt 128 ]]; then
+				unset "PIPE_FD[$index]"
+			else
+				WORKER_PARTIAL[$index]="${WORKER_PARTIAL[$index]:-}${file}"
+			fi
+		done
+	done
+
+	profiling "$(since "$t0"),end,"
+}
+
 worker() {
 	declare -g COUNT
 	declare -g NEXTTOKEN
 	declare -g -a SEGMENTATION
+	declare -g WORKER
 	declare -g WORKER_INFO
 
 	COUNT=0
 	NEXTTOKEN='null'
 	SECONDS=0
+	WORKER=$1
 
 	if [[ -n $PROFILING ]]; then
-		exec 5> "worker$1.profiling"
+		exec 5> "worker${WORKER}.profiling"
 		echo >&5 "epochseconds,scan,math,size,tsize,count,consumed,scanned,osize,decode,pipe,loop"
 	fi
 
@@ -215,15 +303,15 @@ worker() {
 		SEGMENTATION=( )
 		WORKER_INFO=""
 	else
-		SEGMENTATION=('--segment' "$1" '--total-segments' "$WORKERS")
-		WORKER_INFO="Worker #$1: "
+		SEGMENTATION=('--segment' "$WORKER" '--total-segments' "$WORKERS")
+		WORKER_INFO="Worker #$WORKER: "
 	fi
 
 	if [[ -z $READ_FROM ]]; then
 		readData
 	else
 		FILES=( "${READ_FROM}"* )
-		FILE="${FILES[$1]}"
+		FILE="${FILES[$WORKER]}"
 		processData < "${FILE}"
 	fi
 
@@ -285,10 +373,14 @@ readData() {
 processData() {
 	local t1 t2
 	t1=$(timestamp)
-	TMP="$(getTMP)"
-	if [[ $TMP != /* ]]; then
-		echo >&2 "Temporary file not on absolute path: ${TMP}"
-		exit 5
+	if [[ -n $STDOUT ]]; then
+		TMP="$(getTMP)"
+		if [[ $TMP != /* ]]; then
+			echo >&2 "Temporary file not on absolute path: ${TMP}"
+			exit 5
+		fi
+	elif [[ -n $OUTPUT ]]; then
+		TMP="$(printf "$OUTPUT" $WORKER)"
 	fi
 	while read -r line; do
 		if [[ -z $RAW ]]; then
@@ -300,10 +392,12 @@ processData() {
 		else
 			echo "$line"
 		fi
-	done > "$TMP"
+	done >> "$TMP"
 	profiling -n "$(filesize "${TMP}"),$(since "$t1")," || :
 	t2=$(timestamp)
-	echo "$TMP"
+	if [[ -n $STDOUT ]]; then
+		echo "$TMP"
+	fi
 	profiling -n "$(since "$t2"),"
 }
 
@@ -380,35 +474,9 @@ for worker in $(seq 0 $((WORKERS - 1))); do
 	PIPE_FD["${worker}"]="${FD}"
 done
 
-if [[ -n $PROFILING ]]; then
-	exec 5> main.profiling
-	echo >&5 "timestamp,wait,worker,send"
+if [[ -n $STDOUT ]]; then
+	main_stdout
 fi
-
-t0=$(timestamp)
-profiling -n "$(timestamp),"
-while [[ ${#PIPE_FD[@]} -gt 0 ]]; do
-	for index in "${!PIPE_FD[@]}"; do
-		if read -r -t 1 -u "${PIPE_FD[$index]}" file; then
-			profiling -n "$(since "$t0"),$index,"
-			t0=$(timestamp)
-			TMP_FILE="${WORKER_PARTIAL[$index]:-}$file"
-			if [[ $TMP_FILE != /* ]]; then
-				TMP_FILE="/${TMP_FILE}"
-			fi
-			cat "${TMP_FILE}"
-			unset WORKER_PARTIAL["$index"]
-			profiling "$(since "$t0")"
-			t0=$(timestamp)
-			profiling -n "$(timestamp),"
-			rm "${TMP_FILE}"
-		elif [[ $? -lt 128 ]]; then
-			unset "PIPE_FD[$index]"
-		else
-			WORKER_PARTIAL[$index]="${WORKER_PARTIAL[$index]:-}${file}"
-		fi
-	done
-done
 
 wait
 
@@ -417,7 +485,5 @@ trap - EXIT
 for pipe in "${PIPE_NAME[@]}"; do
 	rm "$pipe"
 done
-
-profiling "$(since "$t0"),end,"
 
 # vim: set sts=4 ts=4 sw=4 tw=100 noet :
