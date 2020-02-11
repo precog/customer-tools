@@ -16,7 +16,7 @@ source "$(dirname "$0")/osht.sh"
 set +euo pipefail
 
 # Tests
-PLAN 109
+PLAN 127
 
 # Empty input for error tests
 clearData
@@ -50,11 +50,23 @@ NRUNS "${SCRIPT}" --workers 1.5  # workers has to be an integer
 # Output file has to be non-empty
 NRUNS "${SCRIPT}" --output ''  # output file has to be non-empty
 
-# --stdout --output are mutually exclusive
+# --stdout and --output are mutually exclusive
 NRUNS "${SCRIPT}" --output "${TMP}/test" --stdout  # --stdout and --output are mutually exclusive
 EGREP -- "--stdout and --output are mutually exclusive"
 NRUNS "${SCRIPT}" -s -o "${TMP}/test2"
 EGREP -- "--stdout and --output are mutually exclusive"
+
+# --stdout and --pipe are mutually exclusive
+NRUNS "${SCRIPT}" --pipe "cat > ${TMP}/test" --stdout  # --stdout and --pipe are mutually exclusive
+EGREP -- "--stdout and --pipe are mutually exclusive"
+NRUNS "${SCRIPT}" -s -p "cat > ${TMP}/test2"
+EGREP -- "--stdout and --pipe are mutually exclusive"
+
+# --pipe and --output are mutually exclusive
+NRUNS "${SCRIPT}" --output "${TMP}/test" --pipe "cat > ${TMP}/test"  # --pipe and --output are mutually exclusive
+EGREP -- "--pipe and --output are mutually exclusive"
+NRUNS "${SCRIPT}" -p "cat > ${TMP}/test" -o "${TMP}/test2"
+EGREP -- "--pipe and --output are mutually exclusive"
 
 # Empty input
 clearData
@@ -262,6 +274,20 @@ OK -f "${TMP}/worker_1_output"
 RUNS grep -c '"mergedProjectData":{"a":"b"}' "${TMP}/worker_0_output"
 OGREP "20"
 RUNS grep -c '"mergedProjectData":{"a":"b"}' "${TMP}/worker_1_output"
+OGREP "20"
+
+# Test pipe to command
+RUNS "${SCRIPT}" --pipe "wc -l"  # pipe to command
+OGREP "40"
+
+# Test pipe to command with multiple workers
+RUNS "${SCRIPT}" --workers 2 -p "gzip -9 | cat > ${TMP}/worker_%d_pipe.gz"
+OK -f "${TMP}/worker_0_pipe.gz"
+OK -f "${TMP}/worker_1_pipe.gz"
+RUNS gunzip "${TMP}/worker_0_pipe.gz" "${TMP}/worker_1_pipe.gz"
+RUNS grep -c '"mergedProjectData":{"a":"b"}' "${TMP}/worker_0_pipe"
+OGREP "20"
+RUNS grep -c '"mergedProjectData":{"a":"b"}' "${TMP}/worker_1_pipe"
 OGREP "20"
 
 # vim: set ts=4 sw=4 sts=4 tw=100 noet filetype=sh :

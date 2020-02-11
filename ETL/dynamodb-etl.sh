@@ -27,6 +27,7 @@ usage() {
 		-a | --all                   Process all data (overrides total)
 		-m N | --max-items N         Process data in batches of N (defaults to 25)
 		-o <file> | --output <file>  Send output to "file" (use %d to represent worker number)
+		-p <cmd> | --pipe <cmd>      Pipes output to a command (use %d to represent worker number)
 		-q | --quiet                 Do not print progress information
 		-r | --raw                   Do not decode data
 		-s | --stdout                Sends output to stdout (default)
@@ -55,6 +56,11 @@ usage() {
 		When sending output to a file, the file name is created by doing
 		"printf <file> <worker id>", with worker id numbering from 0 to the total
 		number of workers minus 1.
+
+		When sending output to a pipe, the command is created by doing
+		"printf <cmd> <worker id>", with worker id numbering from 0 to the total
+		number of workers minus 1. That command is evaluated to allow further pipes
+		and redirections, but misuse can break the script.
 	USAGE
 	exit 1
 }
@@ -88,7 +94,15 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 		shift
 		OUTPUT="${1}"
 		if [[ -z $OUTPUT ]]; then
-			echo >&2 $'Output file cannot be null\n'
+			echo >&2 $'Output file cannot be empty\n'
+			usage
+		fi
+		;;
+	-p | --pipe)
+		shift
+		PIPE_TO="${1}"
+		if [[ -z $PIPE_TO ]]; then
+			echo >&2 $'Pipe command cannot be empty\n'
 			usage
 		fi
 		;;
@@ -162,10 +176,11 @@ QUERY
 : "${MAX_ITEMS:=25}"
 : "${NO_TIMER:=}"
 : "${OUTPUT:=}"
+: "${PIPE_TO:=}"
 : "${QUIET:=}"
 : "${RAW:=}"
 : "${READ_FROM:=}"
-if [[ -z $OUTPUT ]]; then
+if [[ -z $OUTPUT && -z $PIPE_TO ]]; then
 	: "${STDOUT:=1}"
 else
 	: "${STDOUT:=}"
@@ -177,6 +192,16 @@ fi
 
 if [[ -n $STDOUT && -n $OUTPUT ]]; then
 	echo >&2 "Parameters --stdout and --output are mutually exclusive"
+	exit 1
+fi
+
+if [[ -n $STDOUT && -n $PIPE_TO ]]; then
+	echo >&2 "Parameters --stdout and --pipe are mutually exclusive"
+	exit 1
+fi
+
+if [[ -n $PIPE_TO && -n $OUTPUT ]]; then
+	echo >&2 "Parameters --pipe and --output are mutually exclusive"
 	exit 1
 fi
 
@@ -280,6 +305,19 @@ main_stdout() {
 	profiling "$(since "$t0"),end,"
 }
 
+main_pipe() {
+	for index in "${!PIPE_NAME[@]}"; do
+		if [[ -n $PIPE_TO ]]; then
+			CMD="$(printf "$PIPE_TO" $index)"
+		else
+			TMP="$(printf "$OUTPUT" $index)"
+			CMD="cat > $TMP"
+		fi
+
+		eval "$CMD" < "${PIPE_NAME[$index]}" &
+	done
+}
+
 worker() {
 	declare -g COUNT
 	declare -g NEXTTOKEN
@@ -379,15 +417,17 @@ readData() {
 processData() {
 	local t1 t2
 	t1=$(timestamp)
+
 	if [[ -n $STDOUT ]]; then
 		TMP="$(getTMP)"
 		if [[ $TMP != /* ]]; then
 			echo >&2 "Temporary file not on absolute path: ${TMP}"
 			exit 5
 		fi
-	elif [[ -n $OUTPUT ]]; then
-		TMP="$(printf "$OUTPUT" $WORKER)"
+	else
+		TMP="$PIPE"
 	fi
+
 	while read -r line; do
 		if [[ -z $RAW ]]; then
 			jq -r -c "${BINARY_DEFAULT_QUERY}" <<< "$line" | base64 --decode | gzip -d |
@@ -399,7 +439,11 @@ processData() {
 			echo "$line"
 		fi
 	done >> "$TMP"
-	profiling -n "$(filesize "${TMP}"),$(since "$t1")," || :
+	if [[ -n $STDOUT ]]; then
+		profiling -n "$(filesize "${TMP}"),$(since "$t1")," || :
+	else
+		profiling -n "0,0,"
+	fi
 	t2=$(timestamp)
 	if [[ -n $STDOUT ]]; then
 		echo "$TMP"
@@ -449,6 +493,7 @@ ss() {
 }
 
 getPipe() {
+	declare PIPE
 	PIPE="$(getTMP)"
 	rm -f "$PIPE"
 	mkfifo "$PIPE"
@@ -482,6 +527,8 @@ done
 
 if [[ -n $STDOUT ]]; then
 	main_stdout
+else
+	main_pipe
 fi
 
 wait
