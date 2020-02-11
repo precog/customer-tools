@@ -73,6 +73,10 @@ elif [[ -n $SCAN ]]; then
 	fi
 	POSITION=$((START + INDEX))
 	NEXT=$((INDEX + LENGTH))
+	if [[ $NEXT -gt $END ]]; then
+		LENGTH=$((LENGTH + END - NEXT))
+		NEXT=$END
+	fi
 	#echo >&2 "FILES ${#FILES[@]} SEGMENT $SEGMENT SEGMENTS $SEGMENTS PARTITION $PARTITION START $START END $END INDEX $INDEX POSITION $POSITION NEXT $NEXT"
 	cat "${FILES[@]:${POSITION}:${LENGTH}}" |
 		jq --slurp "{Items:.} | if $NEXT < $END then .+{NextToken:$NEXT} else . end" #| tee /dev/fd/2
