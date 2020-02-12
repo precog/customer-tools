@@ -250,8 +250,13 @@ fi
 
 # Fetch total if using --all
 if [[ -n $ALL ]]; then
-	TOTAL="$(aws dynamodb describe-table --table-name "${TABLE}" | jq .Table.ItemCount)"
-	[[ -n $QUIET ]] || echo >&2 "Total ${TOTAL}"
+	if [[ -z $READ_FROM ]]; then
+		TOTAL="$(aws dynamodb describe-table --table-name "${TABLE}" | jq .Table.ItemCount)"
+		[[ -n $QUIET ]] || echo >&2 "Total ${TOTAL}"
+	else
+		FILES=( "${READ_FROM}"* )
+		TOTAL="${#FILES[@]}"
+	fi
 fi
 
 # Extra scan flags on verbose
