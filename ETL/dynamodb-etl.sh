@@ -313,9 +313,11 @@ main_stdout() {
 main_pipe() {
 	for index in "${!PIPE_NAME[@]}"; do
 		if [[ -n $PIPE_TO ]]; then
-			CMD="$(printf "$PIPE_TO" $index)"
+			# shellcheck disable=SC2059
+			CMD="$(printf "$PIPE_TO" "$index")"
 		else
-			TMP="$(printf "$OUTPUT" $index)"
+			# shellcheck disable=SC2059
+			TMP="$(printf "$OUTPUT" "$index")"
 			CMD="cat > $TMP"
 		fi
 
