@@ -356,6 +356,8 @@ worker() {
 		WORKER_INFO="Worker #$WORKER: "
 	fi
 
+	trap 'showAborted' EXIT
+
 	if [[ -z $READ_FROM ]]; then
 		readData
 	else
@@ -364,6 +366,9 @@ worker() {
 		processData < "${FILE}"
 	fi
 
+	trap - EXIT
+
+	showFinished
 }
 
 scan() {
@@ -470,6 +475,18 @@ showEllapsed() {
 		estimate=$((TOTAL * duration / COUNT))
 		echo >&2 -n "Time ellapsed: $(showTimer $duration)"
 		echo >&2 " estimated: $(showTimer $estimate)"
+	fi
+}
+
+showFinished() {
+	if [[ -z $NO_TIMER && -z $QUIET && -n $ALL ]]; then
+		echo >&2 "${WORKER_INFO} Finished"
+	fi
+}
+
+showAborted() {
+	if [[ -z $NO_TIMER && -z $QUIET ]]; then
+		echo >&2 "${WORKER_INFO} *** ABORTED ***"
 	fi
 }
 
