@@ -131,6 +131,11 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 		shift
 		READ_FROM="${1}"
 		;;
+	---segments-size)
+		shift
+		SEGMENTS_SIZE=( '---segments-size' "$@" )
+		shift $(("${#SEGMENTS_SIZE[@]}" - 2))
+		;;
 	--profiling)
 		PROFILING=1
 		;;
@@ -380,11 +385,13 @@ scan() {
 	if [[ $# -eq 1 ]]; then
 		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
 			${SEGMENTATION[@]+"${SEGMENTATION[@]}"} --starting-token "$1" \
-			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"}
+			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \
+			${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"}
 	else
 		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
 			${SEGMENTATION[@]+"${SEGMENTATION[@]}"} \
-			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"}
+			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \
+			${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"}
 	fi
 	profiling -n "$(since "$t1"),"
 }
@@ -405,7 +412,7 @@ readData() {
 	jq -r -c '.Items[]' <<<"$DATA" | processData
 	showCount
 
-	while [[ ${NEXTTOKEN} != 'null' && (${TOTAL} -gt ${COUNT}) ]]; do
+	while [[ ${NEXTTOKEN} != 'null' && (${TOTAL} -gt ${COUNT} || $ALL) ]]; do
 		profiling "$(since "$t1")"
 		t1=$(timestamp)
 		curbMaxItems

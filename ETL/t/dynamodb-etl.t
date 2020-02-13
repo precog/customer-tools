@@ -16,7 +16,7 @@ source "$(dirname "$0")/osht.sh"
 set +euo pipefail
 
 # Tests
-PLAN 127
+PLAN 132
 
 # Empty input for error tests
 clearData
@@ -289,5 +289,12 @@ RUNS grep -c '"mergedProjectData":{"a":"b"}' "${TMP}/worker_0_pipe"
 OGREP "20"
 RUNS grep -c '"mergedProjectData":{"a":"b"}' "${TMP}/worker_1_pipe"
 OGREP "20"
+
+# Unequal sized partitions CH10813
+RUNS "${SCRIPT}" --all --workers 2 --pipe "wc -l | tr -d ' ' > '${TMP}/partition%d'" ---segments-size 10 30 # Unequal sized partitions
+RUNS cat "${TMP}/partition0"
+ODIFF <<< $'10'
+RUNS cat "${TMP}/partition1"
+ODIFF <<< $'30'
 
 # vim: set ts=4 sw=4 sts=4 tw=100 noet filetype=sh :
