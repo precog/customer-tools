@@ -16,7 +16,10 @@ source "$(dirname "$0")/osht.sh"
 set +euo pipefail
 
 # Tests
-PLAN 86
+PLAN 132
+
+# Empty input for error tests
+clearData
 
 # Simulate jq not installed
 jq() { echo "Why?"; exit 1; }
@@ -33,10 +36,42 @@ NRUNS "${SCRIPT}"  # abort if jq version is not compatible
 EGREP '1.5'
 rm "${JQ}"
 
+# Invalid parameters
+NRUNS "${SCRIPT}" --mistaken-parameter  # Invalid parameter
+EGREP -i 'invalid parameter.*--mistaken-parameter'
+
+# Workers has to be a positive integer
+NRUNS "${SCRIPT}" --workers ''  # workers can't be empty
+NRUNS "${SCRIPT}" --workers many  # workers has to be a number
+NRUNS "${SCRIPT}" --workers -1  # workers has to be positive
+NRUNS "${SCRIPT}" --workers 0  # workers has to be greater than zero
+NRUNS "${SCRIPT}" --workers 1.5  # workers has to be an integer
+
+# Output file has to be non-empty
+NRUNS "${SCRIPT}" --output ''  # output file has to be non-empty
+
+# --stdout and --output are mutually exclusive
+NRUNS "${SCRIPT}" --output "${TMP}/test" --stdout  # --stdout and --output are mutually exclusive
+EGREP -- "--stdout and --output are mutually exclusive"
+NRUNS "${SCRIPT}" -s -o "${TMP}/test2"
+EGREP -- "--stdout and --output are mutually exclusive"
+
+# --stdout and --pipe are mutually exclusive
+NRUNS "${SCRIPT}" --pipe "cat > ${TMP}/test" --stdout  # --stdout and --pipe are mutually exclusive
+EGREP -- "--stdout and --pipe are mutually exclusive"
+NRUNS "${SCRIPT}" -s -p "cat > ${TMP}/test2"
+EGREP -- "--stdout and --pipe are mutually exclusive"
+
+# --pipe and --output are mutually exclusive
+NRUNS "${SCRIPT}" --output "${TMP}/test" --pipe "cat > ${TMP}/test"  # --pipe and --output are mutually exclusive
+EGREP -- "--pipe and --output are mutually exclusive"
+NRUNS "${SCRIPT}" -p "cat > ${TMP}/test" -o "${TMP}/test2"
+EGREP -- "--pipe and --output are mutually exclusive"
+
 # Empty input
 clearData
 addData < /dev/null
-RUNS "${SCRIPT}" -t 5  # does not fail on empty input
+RUNS "${SCRIPT}" --stdout -t 5  # does not fail on empty input
 NOGREP .
 EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(5)\n0'
 
@@ -46,14 +81,10 @@ addData <<< '{"neither":"exists"}'
 RUNS "${SCRIPT}"  # no text or binary data
 OGREP '"mergedProjectData":null'
 
-# Invalid parameters
-NRUNS "${SCRIPT}" --mistaken-parameter  # Invalid parameter
-EGREP -i 'invalid parameter.*--mistaken-parameter'
-
 # Convert string literals to json
 clearData
 addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
-RUNS "${SCRIPT}"  # converts text data into json
+RUNS "${SCRIPT}" -s  # converts text data into json
 OGREP '"projectData":{}'
 OGREP '"mergedProjectData":{"a":"b"}'
 
@@ -227,5 +258,43 @@ EGREP "SEGMENT(0)"
 EGREP "SEGMENT(1)"
 EGREP "SEGMENT(2)"
 ODIFF <<< $'20'
+
+# Test output to file
+RUNS "${SCRIPT}" --output "${TMP}/output"  # output to file
+NOGREP .
+OK -f "${TMP}/output"
+RUNS grep -c '"mergedProjectData":{"a":"b"}' "${TMP}/output"
+OGREP "40"
+
+# Test output to file with parallel workers
+RUNS "${SCRIPT}" --workers 2 -o "${TMP}/worker_%d_output"  # output to file with parallel workers
+NOGREP .
+OK -f "${TMP}/worker_0_output"
+OK -f "${TMP}/worker_1_output"
+RUNS grep -c '"mergedProjectData":{"a":"b"}' "${TMP}/worker_0_output"
+OGREP "20"
+RUNS grep -c '"mergedProjectData":{"a":"b"}' "${TMP}/worker_1_output"
+OGREP "20"
+
+# Test pipe to command
+RUNS "${SCRIPT}" --pipe "wc -l"  # pipe to command
+OGREP "40"
+
+# Test pipe to command with multiple workers
+RUNS "${SCRIPT}" --workers 2 -p "gzip -9 | cat > ${TMP}/worker_%d_pipe.gz"
+OK -f "${TMP}/worker_0_pipe.gz"
+OK -f "${TMP}/worker_1_pipe.gz"
+RUNS gunzip "${TMP}/worker_0_pipe.gz" "${TMP}/worker_1_pipe.gz"
+RUNS grep -c '"mergedProjectData":{"a":"b"}' "${TMP}/worker_0_pipe"
+OGREP "20"
+RUNS grep -c '"mergedProjectData":{"a":"b"}' "${TMP}/worker_1_pipe"
+OGREP "20"
+
+# Unequal sized partitions CH10813
+RUNS "${SCRIPT}" --all --workers 2 --pipe "wc -l | tr -d ' ' > '${TMP}/partition%d'" ---segments-size 10 30 # Unequal sized partitions
+RUNS cat "${TMP}/partition0"
+ODIFF <<< $'10'
+RUNS cat "${TMP}/partition1"
+ODIFF <<< $'30'
 
 # vim: set ts=4 sw=4 sts=4 tw=100 noet filetype=sh :
