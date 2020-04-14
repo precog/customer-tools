@@ -71,7 +71,7 @@ EGREP -- "--pipe and --output are mutually exclusive"
 # Empty input
 clearData
 addData < /dev/null
-RUNS "${SCRIPT}" --stdout -t 5  # does not fail on empty input
+RUNS "${SCRIPT}" --stdout -t 5 -M 1  # does not fail on empty input
 NOGREP .
 EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(5)\n0'
 
@@ -164,7 +164,7 @@ OGREP '"merged":{"a":"b"}'
 # Handles data over 400 KB in length
 clearData
 addData <<< "{\"key\": [$(seq -s , 1 100000)0]}"
-RUNS "${SCRIPT}"  # handles records bigger than 400 KB
+RUNS "${SCRIPT}" -M 1  # handles records bigger than 400 KB
 EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(25)\n1'
 
 # Do not process data if asked not to
@@ -183,9 +183,9 @@ for ignore in {1..20}; do
 done
 
 # Quiet running
-RUNS "${SCRIPT}" -q -t 5  # quiet running
+RUNS "${SCRIPT}" -q -t 5 -M 1  # quiet running
 EDIFF <<< $'SCAN\nTABLE(projects)\nMAX_ITEMS(5)'
-RUNS "${SCRIPT}" --quiet --all
+RUNS "${SCRIPT}" --quiet --all -M 1
 EDIFF <<-ALL_QUIET
 	DESCRIBE_TABLE
 	TABLE(projects)
@@ -199,14 +199,14 @@ EDIFF <<-ALL_QUIET
 ALL_QUIET
 
 # Basic parameters
-RUNS "${SCRIPT}" --table testTable --total 19 --max-items 7  # does not go beyond total
+RUNS "${SCRIPT}" --table testTable --total 19 --max-items 7 -M 1  # does not go beyond total
 EGREP 'TABLE(testTable)'
 EGREP 'MAX_ITEMS(7)'
 EGREP 19
 NEGREP 21
 
 # Test Total/Max Items
-RUNS "${SCRIPT}" --total 30 --max-items 12  # reads all available data up to total
+RUNS "${SCRIPT}" --total 30 --max-items 12 -M 1  # reads all available data up to total
 EGREP 'STARTING_TOKEN(12)'
 EGREP 'STARTING_TOKEN(24)'
 NEGREP 'STARTING_TOKEN(30)'
@@ -214,17 +214,17 @@ NEGREP 'STARTING_TOKEN(36)'
 EGREP 30
 
 # Test Total/Max Items for Total < Max Items
-RUNS countLines.sh -t 5  # 5 total out of 40 with 25 increments
+RUNS countLines.sh -t 5 -M 1  # 5 total out of 40 with 25 increments
 ODIFF <<< $'5'
 
 # Test Total/Max Items for Total > Max Items
-RUNS countLines.sh -t 10 -m 7  # 10 total out of 40 with 7 increments
+RUNS countLines.sh -t 10 -m 7 -M 1  # 10 total out of 40 with 7 increments
 ODIFF <<< $'10'
 
 # Test --all
-RUNS countLines.sh --all --total 10  # reads all data despite total
+RUNS countLines.sh --all --total 10 -M 1  # reads all data despite total
 ODIFF <<< $'40'  # fetches all content
-RUNS "${SCRIPT}" --all --total 10 ---no-timer  # shows how many records are going to be fetched
+RUNS "${SCRIPT}" --all --total 10 -M 1 ---no-timer  # shows how many records are going to be fetched
 EDIFF <<-ALL_OUTPUT
 	DESCRIBE_TABLE
 	TABLE(projects)
@@ -241,7 +241,7 @@ EDIFF <<-ALL_OUTPUT
 ALL_OUTPUT
 
 # Test two parallel workers
-RUNS "${SCRIPT}" --total 20 --max-items 5 --workers 2  # two parallel workers
+RUNS "${SCRIPT}" --total 20 --max-items 5 --workers 2 -M 1  # two parallel workers
 EGREP "SEGMENTS(2)"
 EGREP "SEGMENT(0)"
 EGREP "SEGMENT(1)"
@@ -252,7 +252,7 @@ EGREP "Worker #0: 10"
 EGREP "Worker #1: 10"
 
 # Test three parallel workers
-RUNS countLines.sh --total 20 --max-items 5 --workers 3  # three parallel workers
+RUNS countLines.sh --total 20 --max-items 5 --workers 3 -M 1  # three parallel workers
 EGREP "SEGMENTS(3)"
 EGREP "SEGMENT(0)"
 EGREP "SEGMENT(1)"

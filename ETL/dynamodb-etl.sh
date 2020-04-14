@@ -25,7 +25,8 @@ usage() {
 
 		-? | -h | --help             Prints this message
 		-a | --all                   Process all data (overrides total)
-		-m N | --max-items N         Process data in batches of N (defaults to 25)
+		-m N | --max-items N         Load data from DynamoDB in batches of N (defaults to 25)
+		-M N | --multiple N          Process loaded data in batches of -m * -M (defaults to 100)
 		-o <file> | --output <file>  Send output to "file" (use %d to represent worker number)
 		-p <cmd> | --pipe <cmd>      Pipes output to a command (use %d to represent worker number)
 		-q | --quiet                 Do not print progress information
@@ -75,6 +76,14 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 		MAX_ITEMS="${1}"
 		if [[ ! "$MAX_ITEMS" =~ $POSITIVE_INTEGER ]]; then
 			echo >&2 "Max items must be a positive integer, got '$MAX_ITEMS'"$'\n'
+			usage
+		fi
+		;;
+	-M | --multiple)
+		shift
+		MULTIPLE="${1}"
+		if [[ ! "$MULTIPLE" =~ $POSITIVE_INTEGER ]]; then
+			echo >&2 "Multiple must be a positive integer, got '$MAX_ITEMS'"$'\n'
 			usage
 		fi
 		;;
@@ -179,6 +188,7 @@ QUERY
 
 : "${ALL:=}"
 : "${MAX_ITEMS:=25}"
+: "${MULTIPLE:=100}"
 : "${NO_TIMER:=}"
 : "${OUTPUT:=}"
 : "${PIPE_TO:=}"
@@ -381,17 +391,36 @@ worker() {
 scan() {
 	local t1
 	t1=$(timestamp)
+	ACTUAL_MAX_ITEMS=$((MULTIPLE * MAX_ITEMS))
 	profiling -n "$(timestamp),"
 	if [[ $# -eq 1 ]]; then
-		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
+		aws dynamodb scan --output json --table-name "$TABLE" --page-size "$MAX_ITEMS" \
+			--max-items "$ACTUAL_MAX_ITEMS"\
 			${SEGMENTATION[@]+"${SEGMENTATION[@]}"} --starting-token "$1" \
 			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \
-			${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"}
+			${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"} || {
+			echo >&2 "Command attempted:"
+			echo >&2 "aws dynamodb scan --output json --table-name \"$TABLE\" --page-size \"$MAX_ITEMS\" \\"
+			echo >&2 "--max-items \"$ACTUAL_MAX_ITEMS\" \\"
+			echo >&2 "${SEGMENTATION[@]+"${SEGMENTATION[@]}"} --starting-token \"$1\" \\"
+			echo >&2 "${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \\"
+			echo >&2 "${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"}"
+			exit 6
+		}
 	else
-		aws dynamodb scan --output json --table-name "$TABLE" --max-items "$MAX_ITEMS" \
+		aws dynamodb scan --output json --table-name "$TABLE" --page-size "$MAX_ITEMS" \
+			--max-items "$ACTUAL_MAX_ITEMS"\
 			${SEGMENTATION[@]+"${SEGMENTATION[@]}"} \
 			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \
-			${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"}
+			${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"} || {
+			echo >&2 "Command attempted:"
+			echo >&2 "aws dynamodb scan --output json --table-name \"$TABLE\" --page-size \"$MAX_ITEMS\" \\"
+			echo >&2 "--max-items \"$ACTUAL_MAX_ITEMS\" \\"
+			echo >&2 "${SEGMENTATION[@]+"${SEGMENTATION[@]}"} \\"
+			echo >&2 "${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \\"
+			echo >&2 "${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"}"
+			exit 6
+		}
 	fi
 	profiling -n "$(since "$t1"),"
 }
