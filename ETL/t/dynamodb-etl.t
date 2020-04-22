@@ -16,7 +16,7 @@ source "$(dirname "$0")/osht.sh"
 set +euo pipefail
 
 # Tests
-PLAN 132
+PLAN 135
 
 # Empty input for error tests
 clearData
@@ -296,5 +296,10 @@ RUNS cat "${TMP}/partition0"
 ODIFF <<< $'10'
 RUNS cat "${TMP}/partition1"
 ODIFF <<< $'30'
+
+# Report pipe errors
+RUNS "${SCRIPT}" --all --workers 1 --pipe "false"  # Report pipe errors
+EGREP "'false' exited with error code 1"
+EGREP 'Pipe #0: \*\*\* ABORTED \*\*\*'
 
 # vim: set ts=4 sw=4 sts=4 tw=100 noet filetype=sh :

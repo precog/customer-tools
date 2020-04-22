@@ -326,18 +326,36 @@ main_stdout() {
 }
 
 main_pipe() {
-	for index in "${!PIPE_NAME[@]}"; do
-		if [[ -n $PIPE_TO ]]; then
-			# shellcheck disable=SC2059
-			CMD="$(printf "$PIPE_TO" "$index")"
-		else
-			# shellcheck disable=SC2059
-			TMP="$(printf "$OUTPUT" "$index")"
-			CMD="cat > $TMP"
-		fi
+	declare index
+	declare CMD
+	declare TMP
+	declare -g PIPE_TO
+	declare -g PIPE_NAME
+	declare -g OUTPUT
+	declare -g WORKER_INFO
 
-		eval "$CMD" < "${PIPE_NAME[$index]}" &
-	done
+	index="$1"
+	if [[ -n $PIPE_TO ]]; then
+		# shellcheck disable=SC2059
+		CMD="$(printf "$PIPE_TO" "$index")"
+		WORKER_INFO="Pipe #${index}:"
+	else
+		# shellcheck disable=SC2059
+		TMP="$(printf "$OUTPUT" "$index")"
+		CMD="cat > $TMP"
+		WORKER_INFO="Output #${index}:"
+	fi
+
+	trap 'showAborted' EXIT
+
+	eval "$CMD" < "${PIPE_NAME[$index]}" || {
+		echo >&2 "'$CMD' exited with error code $?"
+		exit 7
+	}
+
+	trap - EXIT
+
+	showFinished
 }
 
 worker() {
@@ -588,7 +606,9 @@ done
 if [[ -n $STDOUT ]]; then
 	main_stdout
 else
-	main_pipe
+	for index in "${!PIPE_NAME[@]}"; do
+		main_pipe "$index" &
+	done
 fi
 
 wait
