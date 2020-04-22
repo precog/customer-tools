@@ -611,7 +611,16 @@ else
 	done
 fi
 
-wait
+if [[ -n $STDOUT ]]; then
+	WAIT_FOR="${WORKERS}"
+else
+	WAIT_FOR=$((WORKERS * 2))
+fi
+
+# "wait -n" will go through terminated children, "jobs -p" will not list them
+for ignored in $(seq 1 "${WAIT_FOR}"); do
+	wait -n
+done
 
 trap - EXIT
 

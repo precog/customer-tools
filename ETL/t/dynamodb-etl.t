@@ -298,7 +298,7 @@ RUNS cat "${TMP}/partition1"
 ODIFF <<< $'30'
 
 # Report pipe errors
-RUNS "${SCRIPT}" --all --workers 1 --pipe "false"  # Report pipe errors
+NRUNS "${SCRIPT}" --all --workers 1 --pipe "false"  # Report pipe errors
 EGREP "'false' exited with error code 1"
 EGREP 'Pipe #0: \*\*\* ABORTED \*\*\*'
 
