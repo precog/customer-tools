@@ -94,7 +94,7 @@ BADDATA='{"projectData": {"S": "bad data"}}'
 addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
 addData <<< "${BADDATA}"
 addData <<< '{"projectData": {"S": "{\"a\": \"b\"}"}}'
-RUNS "${SCRIPT}" -q  # survives bad string data
+RUNS "${SCRIPT}" -q --verbose  # survives bad string data
 EGREP 'Invalid JSON!'
 EGREP "$(jq -c . <<<"${BADDATA}")"
 RUNS countLines.sh  # good records still read
@@ -117,7 +117,7 @@ addData <<< "${BAD1}"
 addData <<< "${BAD2}"
 addData <<< "${BAD3}"
 addData <<< '{"projectBinaryData": {"B": "H4sIAMzyFV0CA6tWUEpUslJQSlJSqAUACEgasgwAAAA="}}'
-RUNS "${SCRIPT}" -q  # survives bad binary data
+RUNS "${SCRIPT}" -q --verbose  # survives bad binary data
 EGREP 'Invalid JSON!'
 EGREP "$(jq -c . <<<"${BAD1}")"
 EGREP "$(jq -c . <<<"${BAD2}")"
