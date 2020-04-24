@@ -268,6 +268,31 @@ else
 	}
 fi
 
+if [[ "${BASH_VERSINFO[0]}" -gt 4 || ( "${BASH_VERSINFO[0]}" -eq 4 && "${BASH_VERSINFO[1]}" -ge 3 ) ]]; then
+	waitChildren() {
+		declare -g WAIT_FOR
+		declare ignored
+		# "wait -n" will go through terminated children, "jobs -p" will not list them
+		for ignored in $(seq 1 "${WAIT_FOR}"); do
+			wait -n
+		done
+	}
+else
+	waitChildren() {
+		# won't do early exit, but what can you do?
+		declare -g WORKER_PID
+		declare -g MAIN_PID
+		declare index
+		for index in "${!WORKER_PID[@]}"; do
+			wait "${WORKER_PID[$index]}"
+		done
+
+		for index in "${!MAIN_PID[@]}"; do
+			wait "${MAIN_PID[$index]}"
+		done
+	}
+fi
+
 # Fetch total if using --all
 if [[ -n $ALL ]]; then
 	if [[ -z $READ_FROM ]]; then
@@ -603,6 +628,7 @@ profiling() {
 declare -a PIPE_NAME
 declare -a PIPE_FD
 declare -a WORKER_PARTIAL
+declare -a WORKER_PID
 
 trap 'kill $(jobs -p)' EXIT
 
@@ -612,16 +638,22 @@ for worker in $(seq 0 $((WORKERS - 1))); do
 	PIPE_NAME[$worker]="$PIPE"
 	worker "${segment}" > "$PIPE" &
 	: {FD}< "${PIPE}"
+	WORKER_PID["${worker}"]=$!
 	PIPE_FD["${worker}"]="${FD}"
 done
+
+declare -a MAIN_PID
 
 if [[ -n $STDOUT ]]; then
 	main_stdout
 else
 	for index in "${!PIPE_NAME[@]}"; do
 		main_pipe "$index" &
+		MAIN_PID["${index}"]=$!
 	done
 fi
+
+declare WAIT_FOR
 
 if [[ -n $STDOUT ]]; then
 	WAIT_FOR="${WORKERS}"
@@ -629,10 +661,7 @@ else
 	WAIT_FOR=$((WORKERS * 2))
 fi
 
-# "wait -n" will go through terminated children, "jobs -p" will not list them
-for ignored in $(seq 1 "${WAIT_FOR}"); do
-	wait -n
-done
+waitChildren
 
 trap - EXIT
 
