@@ -34,6 +34,7 @@ usage() {
 		-s | --stdout                Sends output to stdout (default)
 		-t N | --total N             Limits processing to the first N entries (defaults to 100)
 		-T NAME | --table NAME       DynamoDB table name (defaults to "projects")
+		-v | --verbose               Prints extra information on errors
 		-w N | --workers N           Number of concurrent workers
 
 		Paths are specified as .x.y.z for { "x": { "y": { "z": data }}}. More
@@ -124,6 +125,9 @@ while [[ $# -gt 0 && $1 == -* ]]; do
 	-s | --stdout)
 		STDOUT=1
 		;;
+	-v | --verbose)
+		VERBOSE=1
+		;;
 	-w | --workers)
 		shift
 		WORKERS="${1}"
@@ -193,6 +197,7 @@ QUERY
 : "${OUTPUT:=}"
 : "${PIPE_TO:=}"
 : "${QUIET:=}"
+: "${VERBOSE:=}"
 : "${RAW:=}"
 : "${READ_FROM:=}"
 if [[ -z $OUTPUT && -z $PIPE_TO ]]; then
@@ -263,6 +268,31 @@ else
 	}
 fi
 
+if [[ "${BASH_VERSINFO[0]}" -gt 4 || ( "${BASH_VERSINFO[0]}" -eq 4 && "${BASH_VERSINFO[1]}" -ge 3 ) ]]; then
+	waitChildren() {
+		declare -g WAIT_FOR
+		declare ignored
+		# "wait -n" will go through terminated children, "jobs -p" will not list them
+		for ignored in $(seq 1 "${WAIT_FOR}"); do
+			wait -n
+		done
+	}
+else
+	waitChildren() {
+		# won't do early exit, but what can you do?
+		declare -g WORKER_PID
+		declare -g MAIN_PID
+		declare index
+		for index in "${!WORKER_PID[@]}"; do
+			wait "${WORKER_PID[$index]}"
+		done
+
+		for index in "${!MAIN_PID[@]}"; do
+			wait "${MAIN_PID[$index]}"
+		done
+	}
+fi
+
 # Fetch total if using --all
 if [[ -n $ALL ]]; then
 	if [[ -z $READ_FROM ]]; then
@@ -326,18 +356,36 @@ main_stdout() {
 }
 
 main_pipe() {
-	for index in "${!PIPE_NAME[@]}"; do
-		if [[ -n $PIPE_TO ]]; then
-			# shellcheck disable=SC2059
-			CMD="$(printf "$PIPE_TO" "$index")"
-		else
-			# shellcheck disable=SC2059
-			TMP="$(printf "$OUTPUT" "$index")"
-			CMD="cat > $TMP"
-		fi
+	declare index
+	declare CMD
+	declare TMP
+	declare -g PIPE_TO
+	declare -g PIPE_NAME
+	declare -g OUTPUT
+	declare -g WORKER_INFO
 
-		eval "$CMD" < "${PIPE_NAME[$index]}" &
-	done
+	index="$1"
+	if [[ -n $PIPE_TO ]]; then
+		# shellcheck disable=SC2059
+		CMD="$(printf "$PIPE_TO" "$index")"
+		WORKER_INFO="Pipe #${index}:"
+	else
+		# shellcheck disable=SC2059
+		TMP="$(printf "$OUTPUT" "$index")"
+		CMD="cat > $TMP"
+		WORKER_INFO="Output #${index}:"
+	fi
+
+	trap 'showAborted' EXIT
+
+	eval "$CMD" < "${PIPE_NAME[$index]}" || {
+		echo >&2 "'$CMD' exited with error code $?"
+		exit 7
+	}
+
+	trap - EXIT
+
+	showFinished
 }
 
 worker() {
@@ -399,12 +447,15 @@ scan() {
 			${SEGMENTATION[@]+"${SEGMENTATION[@]}"} --starting-token "$1" \
 			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \
 			${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"} || {
-			echo >&2 "Command attempted:"
-			echo >&2 "aws dynamodb scan --output json --table-name \"$TABLE\" --page-size \"$MAX_ITEMS\" \\"
-			echo >&2 "--max-items \"$ACTUAL_MAX_ITEMS\" \\"
-			echo >&2 "${SEGMENTATION[@]+"${SEGMENTATION[@]}"} --starting-token \"$1\" \\"
-			echo >&2 "${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \\"
-			echo >&2 "${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"}"
+			echo >&2 "Scan failed with exit code $?"
+			if [[ -n $VERBOSE ]]; then
+				echo >&2 "Command attempted:"
+				echo >&2 "aws dynamodb scan --output json --table-name \"$TABLE\" --page-size \"$MAX_ITEMS\" \\"
+				echo >&2 "--max-items \"$ACTUAL_MAX_ITEMS\" \\"
+				echo >&2 "${SEGMENTATION[@]+"${SEGMENTATION[@]}"} --starting-token \"$1\" \\"
+				echo >&2 "${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \\"
+				echo >&2 "${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"}"
+			fi
 			exit 6
 		}
 	else
@@ -413,12 +464,15 @@ scan() {
 			${SEGMENTATION[@]+"${SEGMENTATION[@]}"} \
 			${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \
 			${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"} || {
-			echo >&2 "Command attempted:"
-			echo >&2 "aws dynamodb scan --output json --table-name \"$TABLE\" --page-size \"$MAX_ITEMS\" \\"
-			echo >&2 "--max-items \"$ACTUAL_MAX_ITEMS\" \\"
-			echo >&2 "${SEGMENTATION[@]+"${SEGMENTATION[@]}"} \\"
-			echo >&2 "${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \\"
-			echo >&2 "${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"}"
+			echo >&2 "Scan failed with exit code $?"
+			if [[ -n $VERBOSE ]]; then
+				echo >&2 "Command attempted:"
+				echo >&2 "aws dynamodb scan --output json --table-name \"$TABLE\" --page-size \"$MAX_ITEMS\" \\"
+				echo >&2 "--max-items \"$ACTUAL_MAX_ITEMS\" \\"
+				echo >&2 "${SEGMENTATION[@]+"${SEGMENTATION[@]}"} \\"
+				echo >&2 "${PROFILING_SCAN[@]+"${PROFILING_SCAN[@]}"} \\"
+				echo >&2 "${SEGMENTS_SIZE[@]+"${SEGMENTS_SIZE[@]}"}"
+			fi
 			exit 6
 		}
 	fi
@@ -480,8 +534,9 @@ processData() {
 		if [[ -z $RAW ]]; then
 			jq -r -c "${BINARY_DEFAULT_QUERY}" <<< "$line" | base64 --decode | gzip -d |
 				jq -r -c ". as \$line | input | ${OUTPUT_QUERY}" <(cat <<<"$line") <(cat) || {
+					echo >&2 "Decode failed with exit code $?"
 					echo >&2 'Invalid JSON!'
-					cat >&2 <<<"$line"
+					[[ -z $VERBOSE ]] || cat >&2 <<<"$line"
 				}
 		else
 			echo "$line"
@@ -573,6 +628,7 @@ profiling() {
 declare -a PIPE_NAME
 declare -a PIPE_FD
 declare -a WORKER_PARTIAL
+declare -a WORKER_PID
 
 trap 'kill $(jobs -p)' EXIT
 
@@ -582,16 +638,30 @@ for worker in $(seq 0 $((WORKERS - 1))); do
 	PIPE_NAME[$worker]="$PIPE"
 	worker "${segment}" > "$PIPE" &
 	: {FD}< "${PIPE}"
+	WORKER_PID["${worker}"]=$!
 	PIPE_FD["${worker}"]="${FD}"
 done
+
+declare -a MAIN_PID
 
 if [[ -n $STDOUT ]]; then
 	main_stdout
 else
-	main_pipe
+	for index in "${!PIPE_NAME[@]}"; do
+		main_pipe "$index" &
+		MAIN_PID["${index}"]=$!
+	done
 fi
 
-wait
+declare WAIT_FOR
+
+if [[ -n $STDOUT ]]; then
+	WAIT_FOR="${WORKERS}"
+else
+	WAIT_FOR=$((WORKERS * 2))
+fi
+
+waitChildren
 
 trap - EXIT
 
